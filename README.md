@@ -20,7 +20,7 @@
 
 ![image](https://github.com/user-attachments/assets/c9733236-2566-421c-a1a5-801ca4dba53c)
 
-## 🏗️ Project Structure (프로젝트 구조)text
+## 🏗️ Project Structure (프로젝트 구조)
 
 📦 api-benchmark
 
