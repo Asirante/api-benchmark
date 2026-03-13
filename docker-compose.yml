@@ -10,8 +10,8 @@ services:
     ports:
       - "5432:5432"
     volumes:
-      -./init-db:/docker-entrypoint-initdb.d
-      -./data:/data
+      - ./init-db:/docker-entrypoint-initdb.d
+      - ./data:/data
     deploy:
       resources:
         limits:
