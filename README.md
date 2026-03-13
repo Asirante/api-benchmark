@@ -18,24 +18,26 @@
 
 이 벤치마킹은 단순한 더미 데이터가 아닌, 다수의 테이블이 복잡하게 얽혀 있는을 활용합니다. 약 10만 건의 실제 주문, 상품, 리뷰 데이터를 통해 데이터 페칭(Data Fetching) 시 발생하는 N+1 문제와 조인(Join) 성능을 정밀하게 테스트합니다.
 
-!(https://github.com/user-attachments/assets/c9733236-2566-421c-a1a5-801ca4dba53c)
+![image](https://github.com/user-attachments/assets/c9733236-2566-421c-a1a5-801ca4dba53c)
 
 ## 🏗️ Project Structure (프로젝트 구조)text
 
 📦 api-benchmark
-┣ 📂 data              # 원본 CSV 데이터 (원본 링크: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce/data?select=product_category_name_translation.csv)
-┣ 📂 init-db           # PostgreSQL 초기화 및 COPY 쿼리 스크립트 (01-init.sql)
-┣ 📂 rest-server       # Go 기반 REST API 서버 (예정)
-┣ 📂 graphql-server    # Go 기반 GraphQL 서버 (예정)
-┣ 📂 grpc-server       # Go 기반 gRPC 서버 및.proto 스키마 (예정)
-┣ 📂 k6-tests          # k6 부하 테스트 자바스크립트 코드 (예정)
-┣ 📜 docker-compose.yml
-┗ 📜 README.md
+
+┣ 📂 data              # 원본 CSV 데이터 ([원본 데이터 링크](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce/data?select=product_category_name_translation.csv)) <br/>
+┣ 📂 init-db           # PostgreSQL 초기화 및 COPY 쿼리 스크립트 (01-init.sql) <br/>
+┣ 📂 rest-server       # Go 기반 REST API 서버 (예정) <br/>
+┣ 📂 graphql-server    # Go 기반 GraphQL 서버 (예정) <br/>
+┣ 📂 grpc-server       # Go 기반 gRPC 서버 및.proto 스키마 (예정) <br/>
+┣ 📂 k6-tests          # k6 부하 테스트 자바스크립트 코드 (예정) <br/>
+┣ 📜 docker-compose.yml <br/>
+┗ 📜 README.md <br/>
 
 ```
 
 ## 🚀 How to Run (실행 방법)
-**1. 데이터베이스 초기화 및 데이터 적재**
+**1. 링크에서 데이터 다운로드 후 olist_products_dataset.csv 속 두 헤더의 오타를 수정 name_length, product_description_length**
+**2. 데이터베이스 초기화 및 데이터 적재**
 WSL2(Ubuntu) 환경에서 아래 명령어를 실행하면 PostgreSQL이 실행되며 10만 건의 데이터가 자동으로 적재됩니다.
 ```bash
 docker-compose up -d db
