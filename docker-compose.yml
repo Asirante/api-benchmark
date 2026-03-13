@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15
+    container_name: benchmark_db
+    environment:
+      POSTGRES_USER: benchmark_user
+      POSTGRES_PASSWORD: benchmark_password
+      POSTGRES_DB: olist_db
+    ports:
+      - "5432:5432"
+    volumes:
+      -./init-db:/docker-entrypoint-initdb.d
+      -./data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: '1024M'
