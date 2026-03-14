@@ -23,15 +23,23 @@
 ## 🏗️ Project Structure (프로젝트 구조)
 
 📦 api-benchmark
-
-┣ 📂 data              # 원본 CSV 데이터 ([원본 데이터 링크](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce/data?select=product_category_name_translation.csv)) <br/>
+┣ 📂 cmd               # 각 API 서버의 진입점 (Entry points) <br/>
+┃ ┣ 📂 rest            # Gin 프레임워크 기반 REST API 서버 <br/>
+┃ ┣ 📂 graphql         # gqlgen 기반 GraphQL 서버 <br/>
+┃ ┗ 📂 grpc            # gRPC 서버 및.proto 스키마 <br/>
+┣ 📂 data              # 원본 CSV 데이터 ([원본 데이터 링크](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce/data)) <br/>
 ┣ 📂 init-db           # PostgreSQL 초기화 및 COPY 쿼리 스크립트 (01-init.sql) <br/>
-┣ 📂 rest-server       # Go 기반 REST API 서버 (예정) <br/>
-┣ 📂 graphql-server    # Go 기반 GraphQL 서버 (예정) <br/>
-┣ 📂 grpc-server       # Go 기반 gRPC 서버 및.proto 스키마 (예정) <br/>
+┣ 📂 internal          # 3개 API가 공통으로 사용하는 비즈니스 및 인프라 로직 <br/>
+┃ ┣ 📂 adapter <br/>
+┃ ┃ ┗ 📂 database      # PostgreSQL DB 연결 설정 (GORM) <br/>
+┃ ┗ 📂 core <br/>
+┃   ┣ 📂 domain        # 데이터베이스 모델 구조체 (Order, Product 등) <br/>
+┃   ┗ 📂 repository    # 공통 DB 조회 쿼리 함수 (Preload 조인 등) <br/>
 ┣ 📂 k6-tests          # k6 부하 테스트 자바스크립트 코드 (예정) <br/>
 ┣ 📜 docker-compose.yml <br/>
+┣ 📜 go.mod            # 통합 Go 모듈 파일 <br/>
 ┗ 📜 README.md <br/>
+
 
 ```
 
