@@ -1,0 +1,20 @@
+FROM golang:1.22-alpine AS builder
+ENV GOTOOLCHAIN=local
+RUN apk update && apk upgrade
+
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+# 빌드 대상 경로가 다릅니다.
+RUN go build -o main ./cmd/graphql/main.go
+
+FROM alpine:3.19
+RUN apk update && apk upgrade && apk add --no-cache ca-certificates
+WORKDIR /root/
+COPY --from=builder /app/main .
+COPY --from=builder /app/.env . 
+
+EXPOSE 8081
+CMD ["./main"]

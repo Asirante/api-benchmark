@@ -1,17 +1,21 @@
+version: '3.8'
+
 services:
   # 1. 공통 데이터베이스 (PostgreSQL)
-  # DB는 API 서버 성능 측정의 병목이 되면 안 되므로 자원을 넉넉히 주거나 제한을 두지 않는 것이 좋습니다.
   db:
     image: postgres:15-alpine
-    container_name: olist_db
+    container_name: benchmark_db
     environment:
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-      POSTGRES_DB: olist
+      # .env 파일과 일치하도록 수정했습니다.
+      POSTGRES_USER: benchmark_user
+      POSTGRES_PASSWORD: benchmark_password
+      POSTGRES_DB: olist_db
     ports:
       - "5432:5432"
     volumes:
-      - ./init-db:/docker-entrypoint-initdb.d # 초기화 SQL 실행 (이미 구현하신 부분)
+      - ./init-db:/docker-entrypoint-initdb.d # 초기 데이터 적재
+      - ./data:/data
+      - pgdata:/var/lib/postgresql/data       # 데이터 영속성 (재시작 시 속도 향상)
 
   # 2. REST API 서버 (Gin)
   rest-api:
@@ -23,7 +27,12 @@ services:
       - "8080:8080"
     depends_on:
       - db
-    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
+    environment:
+      - DB_HOST=db  # 컨테이너 간 통신을 위해 'db' 서비스명 사용
+      - DB_PORT=5432
+      - DB_USER=benchmark_user
+      - DB_PASS=benchmark_password
+      - DB_NAME=olist_db
     deploy:
       resources:
         limits:
@@ -40,7 +49,12 @@ services:
       - "8081:8081"
     depends_on:
       - db
-    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=benchmark_user
+      - DB_PASS=benchmark_password
+      - DB_NAME=olist_db
     deploy:
       resources:
         limits:
@@ -57,7 +71,12 @@ services:
       - "50051:50051"
     depends_on:
       - db
-    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
+    environment:
+      - DB_HOST=db
+      - DB_PORT=5432
+      - DB_USER=benchmark_user
+      - DB_PASS=benchmark_password
+      - DB_NAME=olist_db
     deploy:
       resources:
         limits:
@@ -71,12 +90,14 @@ services:
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml
     ports:
-      - "8082:8080" # 프론트엔드(k6)가 접근할 포트
+      - "8082:8080" # k6가 접근할 포트
     depends_on:
       - grpc-api
-    # Envoy 자체의 프록시 오버헤드를 정확히 측정하기 위해 동일한 자원 제한 적용
     deploy:
       resources:
         limits:
           cpus: '1.0'
           memory: 1024M
+
+volumes:
+  pgdata: # 데이터 보존용 볼륨 정의

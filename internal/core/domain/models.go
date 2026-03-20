@@ -38,11 +38,11 @@ type Product struct {
 
 func (Product) TableName() string { return "olist_products_dataset" }
 
-// 4. 주문 (Order) - 핵심 허브 테이블
+// 4. 주문 (Order) - 벤치마킹의 핵심 허브 테이블
 type Order struct {
 	OrderID                    string    `gorm:"primaryKey;column:order_id" json:"order_id"`
 	CustomerID                 string    `gorm:"column:customer_id" json:"customer_id"`
-	Customer                   Customer  `gorm:"foreignKey:CustomerID" json:"customer,omitempty"` // 1:1 관계
+	Customer                   Customer  `gorm:"foreignKey:CustomerID" json:"customer,omitempty"`
 	OrderStatus                string    `gorm:"column:order_status" json:"order_status"`
 	OrderPurchaseTimestamp     time.Time `gorm:"column:order_purchase_timestamp" json:"order_purchase_timestamp"`
 	OrderApprovedAt            time.Time `gorm:"column:order_approved_at" json:"order_approved_at"`
@@ -50,6 +50,7 @@ type Order struct {
 	OrderDeliveredCustomerDate time.Time `gorm:"column:order_delivered_customer_date" json:"order_delivered_customer_date"`
 	OrderEstimatedDeliveryDate time.Time `gorm:"column:order_estimated_delivery_date" json:"order_estimated_delivery_date"`
 
+	// 관계 설정 (Preload 시 사용)
 	Items    []OrderItem    `gorm:"foreignKey:OrderID" json:"items,omitempty"`
 	Payments []OrderPayment `gorm:"foreignKey:OrderID" json:"payments,omitempty"`
 	Reviews  []OrderReview  `gorm:"foreignKey:OrderID" json:"reviews,omitempty"`
@@ -62,9 +63,9 @@ type OrderItem struct {
 	OrderID           string    `gorm:"primaryKey;column:order_id" json:"order_id"`
 	OrderItemID       int       `gorm:"primaryKey;column:order_item_id" json:"order_item_id"`
 	ProductID         string    `gorm:"column:product_id" json:"product_id"`
-	Product           Product   `gorm:"foreignKey:ProductID" json:"product,omitempty"` // 1:1 관계
+	Product           Product   `gorm:"foreignKey:ProductID" json:"product,omitempty"`
 	SellerID          string    `gorm:"column:seller_id" json:"seller_id"`
-	Seller            Seller    `gorm:"foreignKey:SellerID" json:"seller,omitempty"` // 1:1 관계
+	Seller            Seller    `gorm:"foreignKey:SellerID" json:"seller,omitempty"`
 	ShippingLimitDate time.Time `gorm:"column:shipping_limit_date" json:"shipping_limit_date"`
 	Price             float64   `gorm:"column:price" json:"price"`
 	FreightValue      float64   `gorm:"column:freight_value" json:"freight_value"`
@@ -88,8 +89,8 @@ type OrderReview struct {
 	ReviewID              string    `gorm:"column:review_id" json:"review_id"`
 	OrderID               string    `gorm:"column:order_id" json:"order_id"`
 	ReviewScore           int       `gorm:"column:review_score" json:"review_score"`
-	ReviewCommentTitle    *string   `gorm:"column:review_comment_title" json:"review_comment_title"`     // NULL 허용
-	ReviewCommentMessage  *string   `gorm:"column:review_comment_message" json:"review_comment_message"` // NULL 허용
+	ReviewCommentTitle    *string   `gorm:"column:review_comment_title" json:"review_comment_title"`
+	ReviewCommentMessage  *string   `gorm:"column:review_comment_message" json:"review_comment_message"`
 	ReviewCreationDate    time.Time `gorm:"column:review_creation_date" json:"review_creation_date"`
 	ReviewAnswerTimestamp time.Time `gorm:"column:review_answer_timestamp" json:"review_answer_timestamp"`
 }

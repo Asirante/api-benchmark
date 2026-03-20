@@ -1,0 +1,29 @@
+# 1단계: 빌드 환경 (내 로컬 버전 1.22에 맞춤)
+FROM golang:1.22-alpine AS builder
+
+# 중요: 도커가 외부 툴체인을 다운로드하지 않고 설치된 것만 쓰도록 강제
+ENV GOTOOLCHAIN=local
+
+# 보안 및 최신 패치 적용 (논문용 포인트)
+RUN apk update && apk upgrade
+
+WORKDIR /app
+
+# 의존성 파일 복사 및 설치
+COPY go.mod go.sum ./
+RUN go mod download
+
+# 전체 소스 복사 및 빌드
+COPY . .
+RUN go build -o main ./cmd/rest/main.go
+
+# 2단계: 실행 환경 (경량화 및 보안)
+FROM alpine:3.19
+RUN apk update && apk upgrade && apk add --no-cache ca-certificates
+
+WORKDIR /root/
+COPY --from=builder /app/main .
+COPY --from=builder /app/.env . 
+
+EXPOSE 8080
+CMD ["./main"]
