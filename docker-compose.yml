@@ -1,18 +1,82 @@
 services:
+  # 1. 공통 데이터베이스 (PostgreSQL)
+  # DB는 API 서버 성능 측정의 병목이 되면 안 되므로 자원을 넉넉히 주거나 제한을 두지 않는 것이 좋습니다.
   db:
-    image: postgres:15
-    container_name: benchmark_db
+    image: postgres:15-alpine
+    container_name: olist_db
     environment:
-      POSTGRES_USER: benchmark_user
-      POSTGRES_PASSWORD: benchmark_password
-      POSTGRES_DB: olist_db
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+      POSTGRES_DB: olist
     ports:
       - "5432:5432"
     volumes:
-      - ./init-db:/docker-entrypoint-initdb.d
-      - ./data:/data
+      - ./init-db:/docker-entrypoint-initdb.d # 초기화 SQL 실행 (이미 구현하신 부분)
+
+  # 2. REST API 서버 (Gin)
+  rest-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile.rest
+    container_name: benchmark_rest
+    ports:
+      - "8080:8080"
+    depends_on:
+      - db
+    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
     deploy:
       resources:
         limits:
           cpus: '1.0'
-          memory: '1024M'
+          memory: 1024M
+
+  # 3. GraphQL 서버 (gqlgen)
+  graphql-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile.graphql
+    container_name: benchmark_graphql
+    ports:
+      - "8081:8081"
+    depends_on:
+      - db
+    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+  # 4. gRPC 서버
+  grpc-api:
+    build: 
+      context: .
+      dockerfile: Dockerfile.grpc
+    container_name: benchmark_grpc
+    ports:
+      - "50051:50051"
+    depends_on:
+      - db
+    # 🔥 핵심 통제 조건: CPU 1.0 코어, RAM 1024MB 제한
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
+
+  # 5. Envoy Proxy (gRPC-Web 통신용)
+  envoy:
+    image: envoyproxy/envoy:v1.27.0
+    container_name: benchmark_envoy
+    volumes:
+      - ./envoy.yaml:/etc/envoy/envoy.yaml
+    ports:
+      - "8082:8080" # 프론트엔드(k6)가 접근할 포트
+    depends_on:
+      - grpc-api
+    # Envoy 자체의 프록시 오버헤드를 정확히 측정하기 위해 동일한 자원 제한 적용
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1024M
