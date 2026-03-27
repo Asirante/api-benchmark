@@ -106,7 +106,7 @@ services:
     environment:
       - INFLUXDB_DB=k6
 
-  # 7. 시각화 대시보드 (Grafana)
+# 7. 시각화 대시보드 (Grafana)
   grafana:
     image: grafana/grafana:latest
     container_name: benchmark_grafana
@@ -118,6 +118,11 @@ services:
       - GF_AUTH_BASIC_ENABLED=false
     depends_on:
       - influxdb
+    # 🔥 이 두 줄을 추가하세요! (그라파나 설정 영구 저장)
+    volumes:
+      - grafana_data:/var/lib/grafana
 
+# 맨 아래쪽 volumes 선언부에도 추가!
 volumes:
   pgdata:
+  grafana_data: # 🔥 이것도 추가!

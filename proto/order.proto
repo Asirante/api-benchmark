@@ -1,31 +1,90 @@
-// proto/order.proto
 syntax = "proto3";
 
 // 패키지명 지정
 package order;
 
-// Go 언어용 코드가 생성될 경로 지정 (이게 핵심입니다!)
+// Go 언어용 코드가 생성될 경로 지정
 option go_package = "api-benchmark/internal/adapter/grpc/pb";
 
-// 1. 서비스 정의 (REST의 라우터 역할)
+// =====================================================================
+// 🚀 서비스 정의 (REST의 라우터 역할)
+// =====================================================================
 service OrderService {
-  // 주문 하나를 조회하는 API
-  rpc GetOrder (GetOrderRequest) returns (OrderResponse);
+  // [TC 1, TC 7, TC 9-1, 9-3] 단순 조회 및 에러 처리 (가벼운 페이로드)
+  rpc GetSimpleOrder (GetOrderRequest) returns (SimpleOrderResponse);
+  
+  // [TC 2] 대용량 페이징
+  rpc GetOrders (GetOrdersRequest) returns (GetOrdersResponse);
+  
+  // [TC 3] N+1 문제 시뮬레이션용 (아이템만 따로 조회)
+  rpc GetItemsByOrderID (GetOrderRequest) returns (OrderItemsResponse);
+  
+  // [TC 4, TC 5, TC 9-2] 극한 조인 및 오버페칭 비교 (무거운 페이로드)
+  rpc GetOrderDetails (GetOrderRequest) returns (FullOrderResponse);
+  
+  // [TC 6] 복합 트랜잭션 쓰기 (JSON 파싱 vs 바이너리 파싱 비교)
+  rpc CreateOrder (CreateOrderRequest) returns (CreateOrderResponse);
 }
 
-// 2. 요청(Request) 데이터 구조
+// =====================================================================
+// 📥 요청(Request) 데이터 구조
+// =====================================================================
 message GetOrderRequest {
   string order_id = 1;
 }
 
-// 3. 응답(Response) 데이터 구조 (우리가 GraphQL에서 뽑았던 그 모양 그대로!)
-message OrderResponse {
-  string order_id = 1;
-  string order_status = 2;
-  Customer customer = 3;
+message GetOrdersRequest {
+  int32 limit = 1;
+  int32 offset = 2;
 }
 
+message CreateOrderRequest {
+  string customer_id = 1;
+  string status = 2;
+}
+
+// =====================================================================
+// 📤 응답(Response) 데이터 구조
+// =====================================================================
+
+// 1. 가벼운 응답 (TC1 용)
+message SimpleOrderResponse {
+  string order_id = 1;
+  string order_status = 2;
+}
+
+// 2. 페이징 응답 (TC2 용)
+message GetOrdersResponse {
+  repeated SimpleOrderResponse orders = 1;
+}
+
+// 3. 주문 아이템 정보 (N+1 문제 시뮬레이션용)
+message OrderItem {
+  string product_id = 1;
+  float price = 2;
+  string product_name = 3;
+}
+
+message OrderItemsResponse {
+  repeated OrderItem items = 1;
+}
+
+// 4. 작성해주신 Customer 구조체! (극한 조인용)
 message Customer {
   string customer_city = 1;
   string customer_state = 2;
+}
+
+// 5. 무거운 전체 응답 (TC 4, 5, 9-2 용 - Customer와 Items를 모두 포함!)
+message FullOrderResponse {
+  string order_id = 1;
+  string order_status = 2;
+  repeated OrderItem items = 3;
+  Customer customer = 4; // 작성하신 Customer가 여기에 쏙 들어갑니다!
+}
+
+// 6. 생성 결과 응답 (TC 6 용)
+message CreateOrderResponse {
+  string order_id = 1;
+  bool success = 2;
 }

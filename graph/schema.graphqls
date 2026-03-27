@@ -1,52 +1,56 @@
-# graph/schema.graphqls
-
-scalar Time
-
-type Order {
-  order_id: ID!
-  customer_id: String!
+# 1. 가벼운 응답 (TC 1, 2)
+type SimpleOrder {
+  order_id: String!
   order_status: String!
-  order_purchase_timestamp: Time!
-  order_approved_at: Time
-  customer: Customer
-  items: [OrderItem!]
-  payments: [OrderPayment!]
-  reviews: [OrderReview!]
 }
 
+# 2. 하위 아이템 (TC 3, 4, 5)
+type OrderItem {
+  product_id: String!
+  price: Float!
+  product_name: String!
+}
+
+# 3. 고객 정보 (TC 4, 5)
 type Customer {
-  customer_id: ID!
-  customer_unique_id: String!
   customer_city: String!
   customer_state: String!
 }
 
-type OrderItem {
-  order_id: ID!
-  order_item_id: Int!
-  product_id: String!
-  price: Float!
-  freight_value: Float!
-  product: Product
+# 4. 극한 조인용 무거운 응답 (TC 4, 5)
+type FullOrder {
+  order_id: String!
+  order_status: String!
+  items: [OrderItem!]!
+  customer: Customer!
 }
 
-type Product {
-  product_id: ID!
-  product_category_name: String
-  product_weight_g: Int
+# 5. 쓰기 요청용 Input (TC 6)
+input OrderInput {
+  customer_id: String!
+  status: String!
 }
 
-type OrderPayment {
-  payment_type: String!
-  payment_value: Float!
+type CreateOrderPayload {
+  order_id: String!
+  success: Boolean!
 }
 
-type OrderReview {
-  review_score: Int!
-  review_comment_message: String
-}
-
+# ==========================================
+# 🚀 쿼리 & 뮤테이션 정의
+# ==========================================
 type Query {
-  order(id: ID!): Order
-  orders(limit: Int = 10, offset: Int = 0): [Order!]!
+  # TC 1, 7
+  getSimpleOrder(id: String!): SimpleOrder!
+
+  # TC 2
+  getOrders(limit: Int, offset: Int): [SimpleOrder!]!
+
+  # TC 3, 4, 5 (클라이언트가 필요한 필드만 골라서 요청!)
+  getOrderDetails(id: String!): FullOrder!
+}
+
+type Mutation {
+  # TC 6
+  createOrder(input: OrderInput!): CreateOrderPayload!
 }
