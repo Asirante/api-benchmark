@@ -1,0 +1,31 @@
+// proto/order.proto
+syntax = "proto3";
+
+// 패키지명 지정
+package order;
+
+// Go 언어용 코드가 생성될 경로 지정 (이게 핵심입니다!)
+option go_package = "api-benchmark/internal/adapter/grpc/pb";
+
+// 1. 서비스 정의 (REST의 라우터 역할)
+service OrderService {
+  // 주문 하나를 조회하는 API
+  rpc GetOrder (GetOrderRequest) returns (OrderResponse);
+}
+
+// 2. 요청(Request) 데이터 구조
+message GetOrderRequest {
+  string order_id = 1;
+}
+
+// 3. 응답(Response) 데이터 구조 (우리가 GraphQL에서 뽑았던 그 모양 그대로!)
+message OrderResponse {
+  string order_id = 1;
+  string order_status = 2;
+  Customer customer = 3;
+}
+
+message Customer {
+  string customer_city = 1;
+  string customer_state = 2;
+}

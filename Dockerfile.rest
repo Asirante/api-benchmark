@@ -1,5 +1,4 @@
-# 1단계: 빌드 환경 (내 로컬 버전 1.22에 맞춤)
-FROM golang:1.22-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 # 중요: 도커가 외부 툴체인을 다운로드하지 않고 설치된 것만 쓰도록 강제
 ENV GOTOOLCHAIN=local
