@@ -1,21 +1,18 @@
-version: '3.8'
-
 services:
   # 1. 공통 데이터베이스 (PostgreSQL)
   db:
     image: postgres:15-alpine
     container_name: benchmark_db
     environment:
-      # .env 파일과 일치하도록 수정했습니다.
       POSTGRES_USER: benchmark_user
       POSTGRES_PASSWORD: benchmark_password
       POSTGRES_DB: olist_db
     ports:
       - "5432:5432"
     volumes:
-      - ./init-db:/docker-entrypoint-initdb.d # 초기 데이터 적재
+      - ./init-db:/docker-entrypoint-initdb.d
       - ./data:/data
-      - pgdata:/var/lib/postgresql/data       # 데이터 영속성 (재시작 시 속도 향상)
+      - pgdata:/var/lib/postgresql/data
 
   # 2. REST API 서버 (Gin)
   rest-api:
@@ -28,7 +25,7 @@ services:
     depends_on:
       - db
     environment:
-      - DB_HOST=db  # 컨테이너 간 통신을 위해 'db' 서비스명 사용
+      - DB_HOST=db
       - DB_PORT=5432
       - DB_USER=benchmark_user
       - DB_PASS=benchmark_password
@@ -90,7 +87,8 @@ services:
     volumes:
       - ./envoy.yaml:/etc/envoy/envoy.yaml
     ports:
-      - "8082:8080" # k6가 접근할 포트
+      - "8082:8082" 
+      - "9901:9901" # 관리자 및 모니터링 포트
     depends_on:
       - grpc-api
     deploy:
@@ -99,5 +97,27 @@ services:
           cpus: '1.0'
           memory: 1024M
 
+  # 6. 통계 저장소 (InfluxDB - k6 데이터 적재용)
+  influxdb:
+    image: influxdb:1.8
+    container_name: benchmark_influxdb
+    ports:
+      - "8086:8086"
+    environment:
+      - INFLUXDB_DB=k6
+
+  # 7. 시각화 대시보드 (Grafana)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: benchmark_grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_BASIC_ENABLED=false
+    depends_on:
+      - influxdb
+
 volumes:
-  pgdata: # 데이터 보존용 볼륨 정의
+  pgdata:
