@@ -1,7 +1,6 @@
 package rest
 
 import (
-	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -107,7 +106,7 @@ func (c *OrderController) CreateOrder(ctx *gin.Context) {
 	}
 
 	newOrder := domain.Order{
-		OrderID:                fmt.Sprintf("rest_%d", time.Now().UnixNano()),
+		OrderID:                domain.GenerateOrderID("rest"),
 		CustomerID:             req.CustomerID,
 		OrderStatus:            req.Status,
 		OrderPurchaseTimestamp: time.Now(),

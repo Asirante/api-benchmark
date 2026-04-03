@@ -13,7 +13,7 @@ import (
 // =======================================================
 func (r *mutationResolver) CreateOrder(ctx context.Context, input model.OrderInput) (*model.CreateOrderPayload, error) {
 	newOrder := &domain.Order{
-		OrderID:                fmt.Sprintf("gql_%d", time.Now().UnixNano()),
+		OrderID:                domain.GenerateOrderID("gql"),
 		CustomerID:             input.CustomerID,
 		OrderStatus:            input.Status,
 		OrderPurchaseTimestamp: time.Now(),
