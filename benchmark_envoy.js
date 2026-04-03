@@ -21,7 +21,7 @@ export default function () {
   const invalidId = 'fake_invalid_id_9999';            
 
   // =======================================================
-  // 🔍 [TC 9-1] 단순 조회: 프록시 연결 및 기본 통행료 측정
+  // [TC 9-1] 단순 조회: 프록시 연결 및 기본 통행료 측정
   // =======================================================
   group('TC9-1: Simple Read (Direct vs Envoy)', function () {
     // Direct (50051)
@@ -38,7 +38,7 @@ export default function () {
   });
 
   // =======================================================
-  // 📦 [TC 9-2] 대용량 조인: 데이터 크기가 커질 때 프록시 병목 측정
+  // [TC 9-2] 대용량 조인: 데이터 크기가 커질 때 프록시 병목 측정
   // =======================================================
   group('TC9-2: Heavy Payload (Direct vs Envoy)', function () {
     client.connect('benchmark_grpc:50051', { plaintext: true });
@@ -53,7 +53,7 @@ export default function () {
   });
 
   // =======================================================
-  // 💥 [TC 9-3] 오류 처리: 에러 반환 시 프록시 지연 측정
+  // [TC 9-3] 오류 처리: 에러 반환 시 프록시 지연 측정
   // =======================================================
   group('TC9-3: Error Handling (Direct vs Envoy)', function () {
     client.connect('benchmark_grpc:50051', { plaintext: true });
