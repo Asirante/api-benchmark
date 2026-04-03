@@ -69,13 +69,22 @@ export default function () {
   // [TC 3] 다중 호출 (Under-fetching): REST API의 구조적 한계 검증
   // =======================================================
   group('TC3: Under-fetching', function () {
+    // 1. REST: 2번의 별도 엔드포인트 호출
     http.get(`http://benchmark_rest:8080/api/v1/orders/simple/${validId}`, { tags: { tc: 'tc3', api: 'rest_part1' } });
     const resRest2 = http.get(`http://benchmark_rest:8080/api/v1/orders/${validId}/items`, { tags: { tc: 'tc3', api: 'rest_part2' } });
     check(resRest2, { 'TC3 REST N+1 OK': (r) => r.status === 200 });
 
-    const gqlPayload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_id items { product_name } } }` });
+    // 2. GraphQL: 1번의 쿼리로 연관 데이터 동시 조회
+    const gqlPayload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_id items { product_id } } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc3', api: 'graphql' } });
     check(resGql, { 'TC3 GQL OK': (r) => r.status === 200 });
+
+    // 3. gRPC: REST와 동일하게 2번의 RPC 호출 (연속 호출 성능 측정)
+    // 첫 번째 호출: 주문 기본 정보
+    clientDirect.invoke('order.OrderService/GetSimpleOrder', { order_id: validId }, { tags: { tc: 'tc3', api: 'grpc_part1' } });
+    // 두 번째 호출: 주문 아이템 목록 조회
+    const resGrpc2 = clientDirect.invoke('order.OrderService/GetItemsByOrderID', { order_id: validId }, { tags: { tc: 'tc3', api: 'grpc_part2' } });
+    check(resGrpc2, { 'TC3 gRPC OK': (r) => r && r.status === grpc.StatusOK });
   });
 
   // =======================================================
