@@ -27,31 +27,34 @@ func ConnectDB() (*gorm.DB, error) {
 	var db *gorm.DB
 	var err error
 
+	// DB 연결 재시도 로직
 	for i := 0; i < 10; i++ {
 		db, err = gorm.Open(postgres.Open(dsn), &gorm.Config{
 			Logger:                 logger.Default.LogMode(logger.Error),
-			SkipDefaultTransaction: true,
+			SkipDefaultTransaction: true, // 성능 최적화를 위해 기본 트랜잭션 비활성화
 		})
 
 		if err == nil {
 			sqlDB, sqlErr := db.DB()
 			if sqlErr != nil {
-				return nil, fmt.Errorf("DB 커넥션 풀 설정 실패: %w", sqlErr)
+				return nil, fmt.Errorf("connection pool setup failed: %w", sqlErr)
 			}
-			sqlDB.SetMaxOpenConns(100)
-			sqlDB.SetMaxIdleConns(20)
-			sqlDB.SetConnMaxLifetime(30 * time.Minute)
-			sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
-			log.Printf("Connected to Database: %s:%s (pool: maxOpen=100, maxIdle=20)\n", host, port)
+			// 10,000 VU 스파이크 테스트를 위한 커넥션 풀 설정
+			sqlDB.SetMaxOpenConns(1000) // 최대 동시 연결 수
+			sqlDB.SetMaxIdleConns(200)  // 유휴 연결 유지 수
+			sqlDB.SetConnMaxLifetime(1 * time.Hour)
+			sqlDB.SetConnMaxIdleTime(10 * time.Minute)
+
+			log.Printf("Database connected: %s:%s (MaxOpen: 1000, MaxIdle: 200)\n", host, port)
 			return db, nil
 		}
 
-		log.Printf("DB 대기 중... (%d/10): %v\n", i+1, err)
+		log.Printf("Waiting for database... (%d/10)\n", i+1)
 		time.Sleep(2 * time.Second)
 	}
 
-	return nil, fmt.Errorf("DB 연결 실패: %w", err)
+	return nil, fmt.Errorf("database connection failed: %w", err)
 }
 
 func getEnv(key, fallback string) string {

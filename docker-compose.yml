@@ -1,8 +1,9 @@
 services:
-  # 1. 공통 데이터베이스 (PostgreSQL)
   db:
     image: postgres:15-alpine
     container_name: benchmark_db
+    # 대규모 접속 처리를 위해 max_connections 및 메모리 최적화 설정 적용
+    command: postgres -c 'max_connections=5000' -c 'shared_buffers=1GB' -c 'work_mem=32MB'
     environment:
       POSTGRES_USER: benchmark_user
       POSTGRES_PASSWORD: benchmark_password
@@ -13,8 +14,12 @@ services:
       - ./init-db:/docker-entrypoint-initdb.d
       - ./data:/data
       - pgdata:/var/lib/postgresql/data
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2048M
 
-  # 2. REST API 서버 (Gin)
   rest-api:
     build: 
       context: .
@@ -33,10 +38,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 2048M
 
-  # 3. GraphQL 서버 (gqlgen)
   graphql-api:
     build: 
       context: .
@@ -55,10 +59,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 2048M
 
-  # 4. gRPC 서버
   grpc-api:
     build: 
       context: .
@@ -77,10 +80,9 @@ services:
     deploy:
       resources:
         limits:
-          cpus: '1.0'
-          memory: 1024M
+          cpus: '2.0'
+          memory: 2048M
 
-  # 5. Envoy Proxy (gRPC-Web 통신용)
   envoy:
     image: envoyproxy/envoy:v1.27.0
     container_name: benchmark_envoy
@@ -88,16 +90,15 @@ services:
       - ./envoy.yaml:/etc/envoy/envoy.yaml
     ports:
       - "8082:8082" 
-      - "9901:9901" # 관리자 및 모니터링 포트
+      - "9901:9901"
     depends_on:
       - grpc-api
     deploy:
       resources:
         limits:
-          cpus: '1.0'
+          cpus: '2.0'
           memory: 1024M
 
-  # 6. 통계 저장소 (InfluxDB - k6 데이터 적재용)
   influxdb:
     image: influxdb:1.8
     container_name: benchmark_influxdb
@@ -106,7 +107,6 @@ services:
     environment:
       - INFLUXDB_DB=k6
 
-# 7. 시각화 대시보드 (Grafana)
   grafana:
     image: grafana/grafana:latest
     container_name: benchmark_grafana
