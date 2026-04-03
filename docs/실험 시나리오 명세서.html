@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 아키텍처 성능 벤치마킹 실험 시나리오</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #475569;
+            --border-color: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--card-bg);
+            padding: 3rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            position: relative;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 3rem;
+            padding-bottom: 2rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            color: var(--text-main);
+            margin-bottom: 1rem;
+        }
+
+        .description {
+            color: var(--text-muted);
+            font-size: 1.05rem;
+        }
+
+        .scenario-card {
+            margin-bottom: 3rem;
+            padding: 2rem;
+            background: #f1f5f9;
+            border-radius: 8px;
+            border-left: 4px solid var(--primary-color);
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            color: var(--primary-color);
+            margin-top: 0;
+            margin-bottom: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.1rem;
+            color: var(--text-main);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        ul {
+            margin-top: 0;
+            padding-left: 1.5rem;
+            color: var(--text-muted);
+        }
+
+        li {
+            margin-bottom: 0.5rem;
+        }
+
+        /* HTML 복사 버튼 스타일 */
+        .copy-btn {
+            position: absolute;
+            top: 2rem;
+            right: 2rem;
+            background-color: var(--text-main);
+            color: white;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: background-color 0.2s;
+        }
+
+        .copy-btn:hover {
+            background-color: #0f172a;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 1.5rem; }
+            .scenario-card { padding: 1.5rem; }
+            .copy-btn { position: static; display: block; margin: 0 auto 2rem auto; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container" id="content">
+        <button class="copy-btn" onclick="copyHTML()">HTML 소스 복사하기</button>
+
+        <div class="header">
+            <h1>📊 API 아키텍처(REST, GraphQL, gRPC) 성능 벤치마킹 실험 시나리오</h1>
+            <p class="description">본 실험은 마이크로서비스 아키텍처(MSA) 환경에서 단일 데이터베이스(PostgreSQL)를 공유하는 3가지 API 패러다임의 성능과 한계를 검증하기 위해 5개의 핵심 시나리오(Experimental Units)로 구성됩니다.</p>
+        </div>
+
+        <!-- 실험 1 -->
+        <div class="scenario-card">
+            <h2>🧪 실험 1. 기본 통신 및 데이터 페이로드 처리 성능 (TC 1, TC 2)</h2>
+            
+            <h3>1. 목적</h3>
+            <ul>
+                <li>조인(Join)이 없는 가장 단순한 단건 조회(TC 1)와 대용량 페이징 데이터 다건 조회(TC 2)를 수행하여, 통신 프로토콜별 기본 네트워크 연결 비용과 직렬화/역직렬화 오버헤드를 측정한다.</li>
+            </ul>
+
+            <h3>2. 기대효과(가설)</h3>
+            <ul>
+                <li>페이로드가 매우 작은 단건 조회 시에는 초기 직렬화 오버헤드가 적은 <strong>REST API</strong>가 가장 낮은 지연 시간(Latency)을 보일 것이다.</li>
+                <li>반면, 응답 데이터가 커지는 페이징 상황(TC 2)에서는 문자열(JSON) 기반인 REST와 GraphQL보다, 데이터를 압축 전송하는 <strong>gRPC(Protobuf)</strong>가 통신 대역폭 절약으로 인해 가장 우수한 성능을 낼 것이다.</li>
+            </ul>
+
+            <h3>3. 결과 (차트/표)</h3>
+            <ul>
+                <li>[데이터 수집 후 K6/Grafana 평균 Latency(ms) 및 TPS 표 삽입 예정]</li>
+            </ul>
+
+            <h3>4. 결과 분석</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: 각 API의 p(95), p(99) 응답 속도 비교 분석]</li>
+            </ul>
+
+            <h3>5. 결과의 시사점</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: "단순 통신에는 REST가 유리하지만, 페이로드가 커질수록 바이너리 프로토콜인 gRPC 도입이 필수적이다" 등 도출]</li>
+            </ul>
+        </div>
+
+        <!-- 실험 2 -->
+        <div class="scenario-card">
+            <h2>🧪 실험 2. 구조적 한계(Under/Over-fetching) 극복 성능 (TC 3, TC 4/5)</h2>
+            
+            <h3>1. 목적</h3>
+            <ul>
+                <li>연관된 테이블 데이터를 조회할 때 발생하는 REST의 고질적인 약점인 N+1 호출 문제(언더페칭, TC 3)와 무거운 다중 테이블 조인 상황(오버페칭, TC 4/5)에서 각 API 아키텍처의 처리 효율을 비교한다.</li>
+            </ul>
+
+            <h3>2. 기대효과(가설)</h3>
+            <ul>
+                <li>REST API는 원하는 데이터를 조합하기 위해 네트워크 왕복(RTT)을 여러 번 거쳐야 하므로(TC 3) 응답 시간이 기하급수적으로 증가할 것이다.</li>
+                <li>거대한 연관 데이터를 조회할 때(TC 4/5), REST는 불필요한 필드까지 전송해 통신 병목을 유발하지만, <strong>GraphQL</strong>은 클라이언트가 명시한 필드만 추출하여 페이로드를 최적화할 것이다. 단, GraphQL은 백엔드 리졸버의 AST(추상 구문 트리) 파싱 연산으로 인해 CPU 사용량이 높게 나타날 것이다.</li>
+            </ul>
+
+            <h3>3. 결과 (차트/표)</h3>
+            <ul>
+                <li>[데이터 수집 후 아키텍처별 Network I/O 크기(KB) 및 응답 지연 시간 차트 삽입 예정]</li>
+            </ul>
+
+            <h3>4. 결과 분석</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정]</li>
+            </ul>
+
+            <h3>5. 결과의 시사점</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: "클라이언트의 데이터 요구사항이 가변적일수록 GraphQL이 효과적이나, 쿼리 파싱 최적화가 동반되어야 한다"]</li>
+            </ul>
+        </div>
+
+        <!-- 실험 3 -->
+        <div class="scenario-card">
+            <h2>🧪 실험 3. 데이터 파싱 및 예외 처리 오버헤드 (TC 6, TC 7)</h2>
+            
+            <h3>1. 목적</h3>
+            <ul>
+                <li>쓰기 트랜잭션(TC 6) 시 프로토콜별 역직렬화(파싱) 속도를 비교하고, 잘못된 요청(TC 7) 발생 시 서버가 예외 메시지를 규격화하여 응답하는 비용을 측정한다.</li>
+            </ul>
+
+            <h3>2. 기대효과(가설)</h3>
+            <ul>
+                <li>문자열 기반의 JSON을 파싱해야 하는 REST와 GraphQL 구조보다, 바이너리 기반의 엄격한 타입을 가지는 <strong>gRPC</strong>가 데이터 매핑 및 파싱 속도에서 유리할 것이다.</li>
+                <li>에러 발생 시, 텍스트 형태의 에러 객체(JSON)를 조립하는 것보다 사전 정의된 Status Code(Int)를 반환하는 gRPC의 예외 처리 지연 시간이 가장 짧을 것이다.</li>
+            </ul>
+
+            <h3>3. 결과 (차트/표)</h3>
+            <ul>
+                <li>[데이터 수집 후 쓰기 트랜잭션 TPS(초당 처리량) 및 에러 응답 Latency 표 삽입 예정]</li>
+            </ul>
+
+            <h3>4. 결과 분석</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정]</li>
+            </ul>
+
+            <h3>5. 결과의 시사점</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정]</li>
+            </ul>
+        </div>
+
+        <!-- 실험 4 -->
+        <div class="scenario-card">
+            <h2>🧪 실험 4. 프론트엔드 연동 환경에서의 프록시 병목 분석 (TC 9)</h2>
+            
+            <h3>1. 목적</h3>
+            <ul>
+                <li>웹 브라우저가 gRPC-Web을 사용하기 위해 필수적인 L7 프록시(Envoy Proxy) 계층에서 발생하는 패킷 변환(HTTP/1.1 ↔ HTTP/2) 통행료(Overhead)를 집중 측정한다.</li>
+            </ul>
+
+            <h3>2. 기대효과(가설)</h3>
+            <ul>
+                <li>순수 백엔드 간 통신인 <code>gRPC Direct</code> 채널에 비해, 프록시를 경유하는 <code>gRPC Envoy</code> 채널은 프로토콜 변환(HTTP/1.1을 HTTP/2로 업그레이드) 오버헤드로 인해 일정 수준의 지연(ms)이 발생할 것이다.</li>
+                <li>특히 페이로드 크기가 기하급수적으로 커지는 대용량 조인(TC 9-2) 시, 데이터 리패킹으로 인한 지연율 격차가 더욱 벌어질 것이다.</li>
+            </ul>
+
+            <h3>3. 결과 (차트/표)</h3>
+            <ul>
+                <li>[데이터 수집 후 Direct 통신과 Envoy 통신의 응답 속도 Gap(ms) 비교 차트 삽입 예정]</li>
+            </ul>
+
+            <h3>4. 결과 분석</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: 패킷 크기 증가에 따른 프록시 지연율(%) 분석]</li>
+            </ul>
+
+            <h3>5. 결과의 시사점</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: "gRPC가 빠르더라도, 프론트엔드 연동을 위한 L7 프록시 변환 오버헤드를 고려하여 B2C 서비스 도입 여부를 신중히 결정해야 한다"]</li>
+            </ul>
+        </div>
+
+        <!-- 실험 5 (개정됨) -->
+        <div class="scenario-card">
+            <h2>🧪 실험 5. 극단적 트래픽 스파이크(Spike) 환경에서의 프로토콜 효율성 (TC 8)</h2>
+            
+            <h3>1. 목적</h3>
+            <ul>
+                <li>단 몇 초 만에 트래픽이 100배(10,000명) 폭증하는 돌발 상황을 모사하여, 각 API 통신 프로토콜(JSON 기반 vs Protobuf 기반)의 구조적 한계가 시스템 안정성에 미치는 영향을 분석한다.</li>
+            </ul>
+
+            <h3>2. 기대효과(가설)</h3>
+            <ul>
+                <li><strong>REST/GraphQL (HTTP/1.1):</strong> 대량의 동시 연결을 맺기 위한 소켓 생성 비용과 무거운 JSON 파싱 비용이 겹치면서, CPU 스로틀링이나 커넥션 타임아웃에 가장 먼저 도달할 것이다.</li>
+                <li><strong>gRPC (HTTP/2):</strong> 단일 TCP 연결을 재사용하는 멀티플렉싱(Multiplexing) 기술과 가벼운 바이너리 처리 방식 덕분에, 극단적인 스파이크 상황에서도 지연 시간 증가폭이 가장 적고 안정적으로 트래픽을 방어해 낼 것이다.</li>
+            </ul>
+
+            <h3>3. 결과 (차트/표)</h3>
+            <ul>
+                <li>[데이터 수집 후 VUs 증가에 따른 아키텍처별 에러율(Error Rate %) 및 TPS 방어력 차트 삽입 예정]</li>
+            </ul>
+
+            <h3>4. 결과 분석</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: 스파이크 발생 및 회복(Recovery) 구간에서의 프로토콜별 성능 저하 분석]</li>
+            </ul>
+
+            <h3>5. 결과의 시사점</h3>
+            <ul>
+                <li>[데이터 수집 후 작성 예정: "트래픽이 급변하는 MSA 환경에서는 통신 프로토콜의 선택(HTTP/2 멀티플렉싱 활용 등)이 인프라 안정성을 결정짓는 핵심 요인이다"]</li>
+            </ul>
+        </div>
+
+    </div>
+
+    <script>
+        function copyHTML() {
+            const content = document.getElementById('content').cloneNode(true);
+            content.removeChild(content.querySelector('.copy-btn'));
+            const htmlToCopy = content.innerHTML;
+
+            navigator.clipboard.writeText(htmlToCopy).then(() => {
+                alert('HTML 소스가 클립보드에 복사되었습니다!\n블로그나 노션의 임베드 블록에 붙여넣기 하세요.');
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                alert('복사 중 오류가 발생했습니다.');
+            });
+        }
+    </script>
+</body>
+</html>

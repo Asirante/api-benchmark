@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Grafana SQL 쿼리 모음</title>
+    <style>
+        :root {
+            --primary-color: #2563eb;
+            --secondary-color: #0ea5e9;
+            --bg-color: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #0f172a;
+            --text-muted: #475569;
+            --border-color: #e2e8f0;
+            --code-bg: #1e293b;
+            --code-text: #e2e8f0;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            line-height: 1.6;
+            margin: 0;
+            padding: 2rem;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background-color: var(--card-bg);
+            padding: 3rem;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+
+        h1 {
+            font-size: 1.8rem;
+            text-align: center;
+            margin-bottom: 2rem;
+            padding-bottom: 1rem;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            color: var(--primary-color);
+            margin-top: 2.5rem;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.1rem;
+            color: var(--text-main);
+            margin-top: 1.5rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .guide-box {
+            background-color: #f0f9ff;
+            border-left: 4px solid var(--secondary-color);
+            padding: 1.5rem;
+            border-radius: 4px;
+            margin-bottom: 2rem;
+        }
+
+        .guide-box h3 {
+            margin-top: 0;
+            color: var(--secondary-color);
+        }
+
+        .guide-box ul {
+            margin-bottom: 0;
+            padding-left: 1.5rem;
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+
+        em {
+            color: #ef4444;
+            font-style: normal;
+            font-size: 0.9rem;
+        }
+
+        /* 코드 블록 스타일 */
+        .code-wrapper {
+            position: relative;
+            margin-bottom: 1.5rem;
+        }
+
+        pre {
+            background-color: var(--code-bg);
+            color: var(--code-text);
+            padding: 1.25rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 0.95rem;
+            margin: 0;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .copy-btn {
+            position: absolute;
+            top: 0.5rem;
+            right: 0.5rem;
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 0.4rem 0.8rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.8rem;
+            font-weight: 600;
+            transition: all 0.2s ease;
+        }
+
+        .copy-btn:hover {
+            background-color: #2563eb;
+        }
+
+        .copy-btn.copied {
+            background-color: #10b981;
+        }
+
+        @media (max-width: 768px) {
+            .container { padding: 1.5rem; }
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>📊 Grafana InfluxQL 쿼리 모음 (TC 1 ~ TC 9)</h1>
+
+        <div class="guide-box">
+            <h3>💡 그라파나 쿼리 세팅 가이드 (복사해서 붙여넣기)</h3>
+            <ul>
+                <li>패널 하단 쿼리 편집기 우측의 <strong>연필 아이콘(Toggle text edit mode)</strong> 클릭</li>
+                <li>아래 쿼리들을 복사하여 붙여넣기 (<code>Query A</code>, <code>Query B</code> 추가)</li>
+                <li>쿼리 입력창 바로 아래의 <strong><code>ALIAS BY</code></strong> 칸에 반드시 <strong><code>$tag_api</code></strong> 라고 입력하세요! (범례 이름이 예쁘게 나옵니다)</li>
+            </ul>
+        </div>
+
+        <h2>🚀 1. 기본 아키텍처 비교 (TC 1 ~ TC 7)</h2>
+        <p>REST, GraphQL, gRPC(Direct)의 성능을 비교합니다.</p>
+
+        <h3>[TC 1] 단순 조회 (Simple Read)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc1' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC - 순수 Direct만 표시):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc1' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 2] 대용량 페이징 (Paging)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc2' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc2' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 3] 언더페칭 (Under-fetching / N+1)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc3' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 4] 부분 필드 추출 (Partial Field - GraphQL 유리)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc4' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc4' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 5] 극한 조인 (Full Heavy Join - gRPC 유리)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc5' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc5' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 6] 트랜잭션 쓰기 (Write Transaction)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc6' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc6' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 7] 예외 처리 오버헤드 (Error Handling)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc7' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc7' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+
+        <h2>🏔️ 2. 극한 스파이크 부하 테스트 (TC 8)</h2>
+        <p>1만 명의 트래픽이 폭증할 때의 응답 속도와 에러 발생을 확인합니다.</p>
+
+        <h3>[TC 8] 스파이크 응답 속도 (Latency)</h3>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "http_req_duration" WHERE "tc" = 'tc8_spike' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc8_spike' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 8] 초당 처리량 (TPS / 방어력 확인)</h3>
+        <p><em>단위(Unit)를 `short` 또는 `reqps`로 설정하세요.</em></p>
+        <p><strong>Query A (REST, GQL):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT count("value") FROM "http_reqs" WHERE "tc" = 'tc8_spike' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+        <p><strong>Query B (gRPC):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT count("value") FROM "grpc_reqs" WHERE "tc" = 'tc8_spike' AND "api" = 'grpc_direct' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+
+        <h2>🛡️ 3. Envoy 프록시 오버헤드 집중 분석 (TC 9)</h2>
+        <p>순수 gRPC(Direct)와 프록시를 경유한 gRPC(Envoy)의 지연 시간 차이를 분석합니다. (REST/GQL 제외)</p>
+
+        <h3>[TC 9-1] 단순 조회 프록시 오버헤드 (Simple)</h3>
+        <p><em>Direct와 Envoy 두 개의 선이 비교되어 나타납니다.</em></p>
+        <p><strong>Query A (gRPC 전체):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc9_simple' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 9-2] 대용량 조인 프록시 오버헤드 (Heavy Payload)</h3>
+        <p><em>데이터가 커질 때 프록시 변환 지연이 얼마나 심해지는지 확인합니다.</em></p>
+        <p><strong>Query A (gRPC 전체):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc9_heavy' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+        <h3>[TC 9-3] 에러 반환 프록시 오버헤드 (Error)</h3>
+        <p><strong>Query A (gRPC 전체):</strong></p>
+        <div class="code-wrapper">
+            <button class="copy-btn" onclick="copyCode(this)">복사</button>
+            <pre><code>SELECT mean("value") FROM "grpc_req_duration" WHERE "tc" = 'tc9_error' AND $timeFilter GROUP BY time($__interval), "api" fill(null)</code></pre>
+        </div>
+
+    </div>
+
+    <script>
+        function copyCode(button) {
+            // 버튼 다음 요소인 <pre> 안의 <code> 텍스트를 가져옴
+            const preElement = button.nextElementSibling;
+            const textToCopy = preElement.innerText;
+
+            // 클립보드에 텍스트 복사
+            navigator.clipboard.writeText(textToCopy).then(() => {
+                const originalText = button.innerText;
+                
+                // 버튼 시각적 피드백
+                button.innerText = '복사됨!';
+                button.classList.add('copied');
+                
+                // 1.5초 후 원래대로 복구
+                setTimeout(() => {
+                    button.innerText = originalText;
+                    button.classList.remove('copied');
+                }, 1500);
+            }).catch(err => {
+                console.error('복사 실패:', err);
+                alert('복사 중 오류가 발생했습니다.');
+            });
+        }
+    </script>
+</body>
+</html>
