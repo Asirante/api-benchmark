@@ -1,9 +1,11 @@
 package rest
 
 import (
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
+	"time"
 
 	"api-benchmark/internal/core/domain"
 	"api-benchmark/internal/core/repository"
@@ -93,19 +95,29 @@ func (c *OrderController) GetOrderDetails(ctx *gin.Context) {
 // [TC 6] 복합 트랜잭션 쓰기 (JSON 파싱 부하 측정)
 // POST /api/v1/orders
 func (c *OrderController) CreateOrder(ctx *gin.Context) {
-	var newOrder domain.Order
+	var req struct {
+		CustomerID string `json:"customer_id"`
+		Status     string `json:"status"`
+	}
 
 	// JSON 페이로드를 Go 구조체로 변환 (역직렬화 오버헤드 발생 지점)
-	if err := ctx.ShouldBindJSON(&newOrder); err != nil {
+	if err := ctx.ShouldBindJSON(&req); err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request payload"})
 		return
+	}
+
+	newOrder := domain.Order{
+		OrderID:                fmt.Sprintf("rest_%d", time.Now().UnixNano()),
+		CustomerID:             req.CustomerID,
+		OrderStatus:            req.Status,
+		OrderPurchaseTimestamp: time.Now(),
 	}
 
 	if err := c.repo.CreateOrderTransaction(&newOrder); err != nil {
 		log.Printf("[DB Insert Error]: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{
 			"error":   "Failed to create order",
-			"details": err.Error(), // <- K6에서도 볼 수 있게 에러 내용 반환
+			"details": err.Error(),
 		})
 		return
 	}
