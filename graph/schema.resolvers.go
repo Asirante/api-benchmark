@@ -1,16 +1,30 @@
 package graph
 
 import (
-	"api-benchmark/graph/model" // gqlgen이 생성한 model 패키지 경로 (프로젝트에 맞게 수정 필요)
+	"api-benchmark/graph/model"
+	"api-benchmark/internal/core/domain"
 	"context"
+	"fmt"
+	"time"
 )
 
 // =======================================================
 // [TC 6] 트랜잭션 쓰기
 // =======================================================
 func (r *mutationResolver) CreateOrder(ctx context.Context, input model.OrderInput) (*model.CreateOrderPayload, error) {
+	newOrder := &domain.Order{
+		OrderID:                fmt.Sprintf("gql_%d", time.Now().UnixNano()),
+		CustomerID:             input.CustomerID,
+		OrderStatus:            input.Status,
+		OrderPurchaseTimestamp: time.Now(),
+	}
+
+	if err := r.Repo.CreateOrderTransaction(newOrder); err != nil {
+		return nil, fmt.Errorf("failed to create order: %w", err)
+	}
+
 	return &model.CreateOrderPayload{
-		OrderID: "new_order_123",
+		OrderID: newOrder.OrderID,
 		Success: true,
 	}, nil
 }
@@ -19,9 +33,17 @@ func (r *mutationResolver) CreateOrder(ctx context.Context, input model.OrderInp
 // [TC 1, 7] 단순 조회
 // =======================================================
 func (r *queryResolver) GetSimpleOrder(ctx context.Context, id string) (*model.SimpleOrder, error) {
+	order, err := r.Repo.GetSimpleOrder(id)
+	if err != nil {
+		if err == domain.ErrOrderNotFound {
+			return nil, fmt.Errorf("order not found")
+		}
+		return nil, fmt.Errorf("internal server error")
+	}
+
 	return &model.SimpleOrder{
-		OrderID:     id,
-		OrderStatus: "delivered",
+		OrderID:     order.OrderID,
+		OrderStatus: order.OrderStatus,
 	}, nil
 }
 
@@ -29,22 +51,59 @@ func (r *queryResolver) GetSimpleOrder(ctx context.Context, id string) (*model.S
 // [TC 2] 대용량 페이징
 // =======================================================
 func (r *queryResolver) GetOrders(ctx context.Context, limit *int, offset *int) ([]*model.SimpleOrder, error) {
-	return []*model.SimpleOrder{}, nil
+	l := 100
+	o := 0
+	if limit != nil {
+		l = *limit
+	}
+	if offset != nil {
+		o = *offset
+	}
+
+	orders, err := r.Repo.GetOrdersWithPaging(l, o)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch orders")
+	}
+
+	result := make([]*model.SimpleOrder, len(orders))
+	for i, order := range orders {
+		result[i] = &model.SimpleOrder{
+			OrderID:     order.OrderID,
+			OrderStatus: order.OrderStatus,
+		}
+	}
+
+	return result, nil
 }
 
 // =======================================================
 // [TC 3, 4, 5] 극한 조인 및 오버페칭 방어
 // =======================================================
 func (r *queryResolver) GetOrderDetails(ctx context.Context, id string) (*model.FullOrder, error) {
+	order, err := r.Repo.GetOrderWithFullDetails(id)
+	if err != nil {
+		if err == domain.ErrOrderNotFound {
+			return nil, fmt.Errorf("order not found")
+		}
+		return nil, fmt.Errorf("internal server error")
+	}
+
+	items := make([]*model.OrderItem, len(order.Items))
+	for i, item := range order.Items {
+		items[i] = &model.OrderItem{
+			ProductID:   item.ProductID,
+			Price:       item.Price,
+			ProductName: item.Product.ProductCategoryName,
+		}
+	}
+
 	return &model.FullOrder{
-		OrderID:     id,
-		OrderStatus: "delivered",
-		Items: []*model.OrderItem{
-			{ProductID: "p1", Price: 10.5, ProductName: "Item 1"},
-		},
+		OrderID:     order.OrderID,
+		OrderStatus: order.OrderStatus,
+		Items:       items,
 		Customer: &model.Customer{
-			CustomerCity:  "Seoul",
-			CustomerState: "KR",
+			CustomerCity:  order.Customer.CustomerCity,
+			CustomerState: order.Customer.CustomerState,
 		},
 	}, nil
 }

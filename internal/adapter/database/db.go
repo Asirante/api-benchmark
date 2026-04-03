@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"time"
 
@@ -33,11 +34,20 @@ func ConnectDB() (*gorm.DB, error) {
 		})
 
 		if err == nil {
-			fmt.Printf("✅ Connected to Database: %s:%s\n", host, port)
+			sqlDB, sqlErr := db.DB()
+			if sqlErr != nil {
+				return nil, fmt.Errorf("DB 커넥션 풀 설정 실패: %w", sqlErr)
+			}
+			sqlDB.SetMaxOpenConns(100)
+			sqlDB.SetMaxIdleConns(20)
+			sqlDB.SetConnMaxLifetime(30 * time.Minute)
+			sqlDB.SetConnMaxIdleTime(5 * time.Minute)
+
+			log.Printf("Connected to Database: %s:%s (pool: maxOpen=100, maxIdle=20)\n", host, port)
 			return db, nil
 		}
 
-		fmt.Printf("⏳ DB 대기 중... (%d/10)\n", i+1)
+		log.Printf("DB 대기 중... (%d/10): %v\n", i+1, err)
 		time.Sleep(2 * time.Second)
 	}
 
