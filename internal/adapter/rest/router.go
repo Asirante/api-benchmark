@@ -1,12 +1,21 @@
 package rest
 
 import (
+	"os"
+
 	"github.com/gin-gonic/gin"
 )
 
 // SetupRouter는 Gin 엔진을 초기화하고 라우팅을 설정합니다.
 func SetupRouter(controller *OrderController) *gin.Engine {
-	r := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
+	r.Use(gin.Recovery())
+
+	// GIN_LOG=1 환경변수가 설정된 경우에만 요청 로그 출력
+	if os.Getenv("GIN_LOG") == "1" {
+		r.Use(gin.Logger())
+	}
 
 	// API v1 그룹 생성
 	v1 := r.Group("/api/v1")
