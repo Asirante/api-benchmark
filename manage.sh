@@ -1,59 +1,51 @@
 #!/bin/bash
 
-# 코딩 파트너가 작성한 벤치마킹 Docker 관리 스크립트 🐳
-# 주의사항 : chmod +x manage.sh 입력 후 사용 가능
-# 사용법: ./manage.sh [명령어]
-# 팁: echo "alias bm='./manage.sh'" >> ~/.bashrc
-#     source ~/.bashrc
-#     후 사용시 bm으로 사용 가능
+# API 아키텍처 벤치마킹 통합 관리 스크립트
+# 권한 부여: chmod +x manage.sh
+# 실행 방법: ./manage.sh [명령어]
 
 COMMAND=$1
 
 case "$COMMAND" in
   start)
-    echo "🚀 벤치마크 서버 환경을 빌드하고 백그라운드에서 실행합니다..."
-    # --build 옵션: Go 코드를 수정하고 다시 실행할 때 최신 코드가 반영되도록 강제 빌드합니다.
+    echo "[진행] 벤치마크 서버 환경 빌드 및 백그라운드 실행..."
     docker compose up -d --build
-    echo "✅ 모든 서버가 실행되었습니다. 'bm logs'로 상태를 확인하세요."
+    echo "[완료] 서버가 실행되었습니다. 'bm logs'로 상태를 확인하십시오."
     ;;
   
   stop)
-    echo "🛑 컨테이너를 중지하고 네트워크를 해제합니다..."
+    echo "[진행] 컨테이너 중지 및 네트워크 해제..."
     docker compose down
-    echo "✅ 서버가 완전히 중지되었습니다."
+    echo "[완료] 서버가 중지되었습니다."
     ;;
   
   restart)
-    echo "🔄 서버를 중지하고 새 코드로 다시 빌드하여 재시작합니다..."
+    echo "[진행] 서버 재시작 및 최신 코드 반영..."
     docker compose down
     docker compose up -d --build
-    echo "✅ 재시작이 완료되었습니다."
+    echo "[완료] 재시작이 완료되었습니다."
     ;;
   
   clean)
-    echo "🧹 도커 환경을 완전히 초기화합니다..."
-    echo "⚠️ 주의: DB 볼륨(저장된 데이터)과 빌드된 이미지가 모두 삭제됩니다."
-    # -v: 볼륨(DB 데이터) 삭제 / --rmi all: 관련된 모든 도커 이미지 삭제
+    echo "[진행] 도커 환경 초기화 진행 중..."
+    echo "[경고] 데이터베이스 볼륨 및 빌드된 이미지가 삭제됩니다."
     docker compose down -v --rmi all
-    echo "✅ 초기화 완료! 다시 시작하려면 'bm start'를 입력하세요."
+    echo "[완료] 초기화가 완료되었습니다."
     ;;
 
   logs)
-    echo "📋 실시간 로그를 출력합니다. (종료하려면 Ctrl+C)"
+    echo "[로그] 실시간 컨테이너 로그 출력 (종료: Ctrl+C)"
     docker compose logs -f
     ;;
 
   test)
-    # 두 번째 인자가 없으면 기본값 1000을 사용합니다.
     VUS=${2:-1000}
-    
-    echo "🔫 K6 부하 테스트를 시작합니다... (목표 가상 유저: ${VUS}명)"
-    echo "🧹 1/2: InfluxDB의 기존 k6 데이터를 초기화합니다..."
+    echo "[테스트] 기본 아키텍처(REST, GraphQL, gRPC) 벤치마크 시작 (목표 VUs: ${VUS})"
+    echo "데이터베이스 초기화 중..."
     docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
     docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
     
-    echo "🚀 2/2: K6 컨테이너를 생성하여 타격을 시작합니다! (Grafana 화면을 확인하세요)"
-    
+    echo "부하 생성 시작 (benchmark.js 실행)"
     docker run --rm -i \
       --ulimit nofile=65535:65535 \
       -v $(pwd):/app -w /app \
@@ -61,17 +53,17 @@ case "$COMMAND" in
       -e VUS=$VUS \
       grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark.js
     
-    echo "✅ 테스트가 완료되었습니다! Grafana 대시보드에서 결과를 확인하세요."
+    echo "[완료] 테스트가 종료되었습니다."
     ;;
     
   test-proxy)
     VUS=${2:-1000}
-    echo "🛡️ Envoy 프록시 오버헤드 전용 벤치마크를 시작합니다... (목표 가상 유저: ${VUS}명)"
-    echo "🧹 InfluxDB 데이터를 초기화합니다..."
+    echo "[테스트] Envoy 프록시 오버헤드 벤치마크 시작 (목표 VUs: ${VUS})"
+    echo "데이터베이스 초기화 중..."
     docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
     docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
     
-    echo "🚀 프록시 타격 시작! (benchmark_envoy.js 실행)"
+    echo "부하 생성 시작 (benchmark_envoy.js 실행)"
     docker run --rm -i \
       --ulimit nofile=65535:65535 \
       -v $(pwd):/app -w /app \
@@ -79,19 +71,36 @@ case "$COMMAND" in
       -e VUS=$VUS \
       grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark_envoy.js
     
-    echo "✅ 프록시 오버헤드 테스트 완료!"
+    echo "[완료] 프록시 테스트가 종료되었습니다."
     ;;
+
+  test-spike)
+    echo "[테스트] 극단적 스파이크(Spike) 부하 테스트 시작 (목표 VUs: 최대 10,000)"
+    echo "데이터베이스 초기화 중..."
+    docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
+    docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
+    
+    echo "스파이크 부하 생성 시작 (benchmark_tc8.js 실행)"
+    docker run --rm -i \
+      --ulimit nofile=65535:65535 \
+      -v $(pwd):/app -w /app \
+      --network api-benchmark_default \
+      grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark_tc8.js
+    
+    echo "[완료] 스파이크 테스트가 종료되었습니다."
+    ;;
+
   *)
-    echo "⚠️ 올바른 명령어를 입력해주세요."
-    echo "사용법: bm [start | stop | restart | clean | logs | test]"
+    echo "사용법: ./manage.sh [명령어]"
     echo "------------------------------------------------------------"
-    echo "  start   : 컨테이너 새로 빌드 및 실행 (테스트 시작 전)"
-    echo "  stop    : 컨테이너 중지 (잠시 쉴 때)"
-    echo "  restart : 중지 후 다시 빌드 및 실행 (Go 코드 수정 후)"
-    echo "  clean   : 컨테이너, 이미지, DB 볼륨 완전 삭제 (DB를 처음부터 다시 세팅할 때)"
-    echo "  logs    : 모든 서버의 실시간 로그 보기 (에러 확인할 때)"
-    echo "  test       : 기본 아키텍처 비교 테스트 (REST vs GQL vs gRPC)"
-    echo "  test-proxy : 🛡️ [TC9] Envoy 프록시 오버헤드 집중 분석 테스트"
+    echo "  start      : 컨테이너 새로 빌드 및 실행"
+    echo "  stop       : 컨테이너 중지"
+    echo "  restart    : 중지 후 다시 빌드 및 실행"
+    echo "  clean      : 컨테이너, 이미지, DB 볼륨 완전 삭제"
+    echo "  logs       : 컨테이너 실시간 로그 출력"
+    echo "  test       : [TC1~7] 기본 아키텍처 비교 부하 테스트 (기본 VUs 1000)"
+    echo "  test-proxy : [TC9] Envoy 프록시 오버헤드 측정 테스트 (기본 VUs 1000)"
+    echo "  test-spike : [TC8] 스파이크 생존력 평가 테스트 (최대 10,000 VUs)"
     exit 1
     ;;
 esac
