@@ -112,16 +112,16 @@ export default function () {
   // [TC 6] 트랜잭션 쓰기: 파싱(역직렬화) 속도 측정
   // =======================================================
   group('TC6: Write Transaction', function () {
-    const payload = JSON.stringify({ customer_id: "cust_1", status: "created" });
+    const payload = JSON.stringify({ customer_id: "06b8999e2fba1a1fbc88172c00ba8bc7", status: "created" });
     
     const resRest = http.post('http://benchmark_rest:8080/api/v1/orders', payload, { headers: { 'Content-Type': 'application/json' }, tags: { tc: 'tc6', api: 'rest' } });
     check(resRest, { 'TC6 REST OK': (r) => r.status === 201 || r.status === 200 });
 
-    const gqlPayload = JSON.stringify({ query: `mutation { createOrder(input: { customer_id: "cust_1", status: "created" }) { order_id } }` });
+    const gqlPayload = JSON.stringify({ query: `mutation { createOrder(input: { customer_id: "06b8999e2fba1a1fbc88172c00ba8bc7", status: "created" }) { order_id } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc6', api: 'graphql' } });
     check(resGql, { 'TC6 GQL OK': (r) => r.status === 200 });
 
-    const resGrpc = clientDirect.invoke('order.OrderService/CreateOrder', { customer_id: "cust_1", status: "created" }, { tags: { tc: 'tc6', api: 'grpc' } });
+    const resGrpc = clientDirect.invoke('order.OrderService/CreateOrder', { customer_id: "06b8999e2fba1a1fbc88172c00ba8bc7", status: "created" }, { tags: { tc: 'tc6', api: 'grpc' } });
     check(resGrpc, { 'TC6 gRPC OK': (r) => r && r.status === grpc.StatusOK });
   });
 

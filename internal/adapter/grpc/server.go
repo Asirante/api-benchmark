@@ -4,6 +4,9 @@ import (
 	"api-benchmark/internal/adapter/grpc/pb"
 	"api-benchmark/internal/core/repository"
 	"context"
+
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type OrderGrpcServer struct {
@@ -19,7 +22,11 @@ func NewOrderGrpcServer(repo *repository.OrderRepo) *OrderGrpcServer {
 // [TC 1, 7, 9-1, 9-3] 단순 조회 (가벼운 페이로드)
 // =======================================================
 func (s *OrderGrpcServer) GetSimpleOrder(ctx context.Context, req *pb.GetOrderRequest) (*pb.SimpleOrderResponse, error) {
-	// 에러 처리 시뮬레이션 (TC 7을 위해 가짜 ID가 들어오면 에러를 뱉게 할 수도 있습니다)
+	// TC 7을 위한 예외 처리 시뮬레이션: 가짜 ID가 들어오면 NotFound 에러 반환
+	if req.GetOrderId() == "fake_invalid_id_9999" {
+		return nil, status.Error(codes.NotFound, "Order not found")
+	}
+
 	return &pb.SimpleOrderResponse{
 		OrderId:     req.GetOrderId(),
 		OrderStatus: "delivered",

@@ -1,6 +1,7 @@
 package rest
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -101,7 +102,12 @@ func (c *OrderController) CreateOrder(ctx *gin.Context) {
 	}
 
 	if err := c.repo.CreateOrderTransaction(&newOrder); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create order"})
+		// 🔥 진짜 에러 원인을 터미널과 HTTP 응답 양쪽에 모두 노출합니다.
+		fmt.Printf("❌ [DB Insert Error]: %v\n", err)
+		ctx.JSON(http.StatusInternalServerError, gin.H{
+			"error":   "Failed to create order",
+			"details": err.Error(), // <- K6에서도 볼 수 있게 에러 내용 반환
+		})
 		return
 	}
 
