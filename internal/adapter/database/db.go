@@ -41,12 +41,12 @@ func ConnectDB() (*gorm.DB, error) {
 			}
 
 			// 10,000 VU 스파이크 테스트를 위한 커넥션 풀 설정
-			sqlDB.SetMaxOpenConns(1000) // 최대 동시 연결 수
-			sqlDB.SetMaxIdleConns(200)  // 유휴 연결 유지 수
+			sqlDB.SetMaxOpenConns(500) // 최대 동시 연결 수
+			sqlDB.SetMaxIdleConns(100) // 유휴 연결 유지 수
 			sqlDB.SetConnMaxLifetime(1 * time.Hour)
 			sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 
-			log.Printf("Database connected: %s:%s (MaxOpen: 1000, MaxIdle: 200)\n", host, port)
+			log.Printf("Database connected: %s:%s (MaxOpen: 500, MaxIdle: 100)\n", host, port)
 			return db, nil
 		}
 

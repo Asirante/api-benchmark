@@ -3,7 +3,7 @@ services:
     image: postgres:15-alpine
     container_name: benchmark_db
     # 대규모 접속 처리를 위해 max_connections 및 메모리 최적화 설정 적용
-    command: postgres -c 'max_connections=5000' -c 'shared_buffers=1GB' -c 'work_mem=32MB'
+    command: postgres -c 'max_connections=5000' -c 'shared_buffers=1GB' -c 'work_mem=32MB' -c 'synchronous_commit=off'
     environment:
       POSTGRES_USER: benchmark_user
       POSTGRES_PASSWORD: benchmark_password
