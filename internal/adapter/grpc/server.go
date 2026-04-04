@@ -5,7 +5,6 @@ import (
 	"api-benchmark/internal/core/domain"
 	"api-benchmark/internal/core/repository"
 	"context"
-	"fmt"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -123,7 +122,7 @@ func (s *OrderGrpcServer) GetOrderDetails(ctx context.Context, req *pb.GetOrderR
 // =======================================================
 func (s *OrderGrpcServer) CreateOrder(ctx context.Context, req *pb.CreateOrderRequest) (*pb.CreateOrderResponse, error) {
 	newOrder := &domain.Order{
-		OrderID:                fmt.Sprintf("grpc_%d", time.Now().UnixNano()),
+		OrderID:                domain.GenerateOrderID("grpc"),
 		CustomerID:             req.GetCustomerId(),
 		OrderStatus:            req.GetStatus(),
 		OrderPurchaseTimestamp: time.Now(),
