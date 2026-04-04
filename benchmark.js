@@ -41,13 +41,11 @@ export default function () {
 
     const gqlPayload = JSON.stringify({ query: `query { getSimpleOrder(id: "${validId}") { order_id order_status } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc1', api: 'graphql' } });
-    check(resGql, { 'TC1 GQL OK': (r) => r.status === 200 });
+    // GraphQL은 에러가 발생해도 200을 반환하므로 errors 필드 부재 여부를 확인
+    check(resGql, { 'TC1 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
 
     const resGrpc = clientDirect.invoke('order.OrderService/GetSimpleOrder', { order_id: validId }, { tags: { tc: 'tc1', api: 'grpc' } });
     check(resGrpc, { 'TC1 gRPC Direct OK': (r) => r && r.status === grpc.StatusOK });
-
-    // const resEnvoy = clientEnvoy.invoke('order.OrderService/GetSimpleOrder', { order_id: validId }, { tags: { tc: 'tc1', api: 'grpc_envoy' } });
-    // check(resEnvoy, { 'TC1 gRPC Envoy OK': (r) => r && r.status === grpc.StatusOK });
   });
 
   // =======================================================
@@ -59,7 +57,7 @@ export default function () {
 
     const gqlPayload = JSON.stringify({ query: `query { getOrders(limit: 50, offset: 0) { order_id } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc2', api: 'graphql' } });
-    check(resGql, { 'TC2 GQL OK': (r) => r.status === 200 });
+    check(resGql, { 'TC2 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
     
     const resGrpc = clientDirect.invoke('order.OrderService/GetOrders', { limit: 50, offset: 0 }, { tags: { tc: 'tc2', api: 'grpc' } });
     check(resGrpc, { 'TC2 gRPC OK': (r) => r && r.status === grpc.StatusOK });
@@ -77,18 +75,17 @@ export default function () {
     // 2. GraphQL: 1번의 쿼리로 연관 데이터 동시 조회
     const gqlPayload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_id items { product_id } } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc3', api: 'graphql' } });
-    check(resGql, { 'TC3 GQL OK': (r) => r.status === 200 });
+    check(resGql, { 'TC3 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
 
-    // 3. gRPC: REST와 동일하게 2번의 RPC 호출 (연속 호출 성능 측정)
-    // 첫 번째 호출: 주문 기본 정보
+    // 3. gRPC: REST와 동일하게 2번의 RPC 호출
     clientDirect.invoke('order.OrderService/GetSimpleOrder', { order_id: validId }, { tags: { tc: 'tc3', api: 'grpc_part1' } });
-    // 두 번째 호출: 주문 아이템 목록 조회
     const resGrpc2 = clientDirect.invoke('order.OrderService/GetItemsByOrderID', { order_id: validId }, { tags: { tc: 'tc3', api: 'grpc_part2' } });
     check(resGrpc2, { 'TC3 gRPC OK': (r) => r && r.status === grpc.StatusOK });
   });
 
   // =======================================================
   // [TC 4] 부분 필드 추출: GraphQL의 네트워크 페이로드 최적화 검증
+  // (참고: TC5와 동일 엔드포인트를 호출하므로 DB 쿼리 자체는 동일하게 발생함)
   // =======================================================
   group('TC4: Partial Field (Over-fetching)', function () {
     const resRest = http.get(`http://benchmark_rest:8080/api/v1/orders/details/${validId}`, { tags: { tc: 'tc4', api: 'rest' } });
@@ -96,7 +93,7 @@ export default function () {
 
     const gqlPayload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_status customer { customer_city } } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc4', api: 'graphql' } });
-    check(resGql, { 'TC4 GQL OK': (r) => r.status === 200 });
+    check(resGql, { 'TC4 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
 
     const resGrpc = clientDirect.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc4', api: 'grpc' } });
     check(resGrpc, { 'TC4 gRPC OK': (r) => r && r.status === grpc.StatusOK });
@@ -113,7 +110,7 @@ export default function () {
       query: `query { getOrderDetails(id: "${validId}") { order_id order_status items { product_id price product_name } customer { customer_city customer_state } } }` 
     });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc5', api: 'graphql' } });
-    check(resGql, { 'TC5 GQL OK': (r) => r.status === 200 });
+    check(resGql, { 'TC5 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
 
     const resGrpc = clientDirect.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc5', api: 'grpc' } });
     check(resGrpc, { 'TC5 gRPC OK': (r) => r && r.status === grpc.StatusOK });
@@ -128,9 +125,10 @@ export default function () {
     const resRest = http.post('http://benchmark_rest:8080/api/v1/orders', payload, { headers: { 'Content-Type': 'application/json' }, tags: { tc: 'tc6', api: 'rest' } });
     check(resRest, { 'TC6 REST OK': (r) => r.status === 201 || r.status === 200 });
 
-    const gqlPayload = JSON.stringify({ query: `mutation { createOrder(input: { customer_id: customerId, status: "created" }) { order_id } }` });
+    // 수정됨: 변수 보간법 누락 오류 해결 (${customerId})
+    const gqlPayload = JSON.stringify({ query: `mutation { createOrder(input: { customer_id: "${customerId}", status: "created" }) { order_id } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc6', api: 'graphql' } });
-    check(resGql, { 'TC6 GQL OK': (r) => r.status === 200 });
+    check(resGql, { 'TC6 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
 
     const resGrpc = clientDirect.invoke('order.OrderService/CreateOrder', { customer_id: customerId, status: "created" }, { tags: { tc: 'tc6', api: 'grpc' } });
     check(resGrpc, { 'TC6 gRPC OK': (r) => r && r.status === grpc.StatusOK });
@@ -145,7 +143,8 @@ export default function () {
 
     const gqlPayload = JSON.stringify({ query: `query { getSimpleOrder(id: "${invalidId}") { order_id } }` });
     const resGqlErr = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc7', api: 'graphql_error' } });
-    check(resGqlErr, { 'TC7 GQL Error': (r) => r.status === 200 }); 
+    // 에러 상황이므로 errors 필드가 반드시 존재해야 정상적으로 에러 처리된 것임
+    check(resGqlErr, { 'TC7 GQL Error': (r) => r.status === 200 && r.json().errors !== undefined }); 
 
     const resGrpcErr = clientDirect.invoke('order.OrderService/GetSimpleOrder', { order_id: invalidId }, { tags: { tc: 'tc7', api: 'grpc_error' } });
     check(resGrpcErr, { 'TC7 gRPC Error': (r) => r && r.status !== grpc.StatusOK });
