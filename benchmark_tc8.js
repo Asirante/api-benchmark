@@ -40,7 +40,7 @@ export default function () {
     check(resGql, { 'GQL Spike OK': (r) => r.status === 200 });
 
     // gRPC: HTTP/2 기반 단일 커넥션 멀티플렉싱(Multiplexing)을 통한 트래픽 방어 성능 검증
-    const resGrpc = client.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc8_spike', api: 'grpc_direct' } });
+    const resGrpc = client.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc8_spike', api: 'grpc' } });
     check(resGrpc, { 'gRPC Spike OK': (r) => r && r.status === grpc.StatusOK });
   });
 
