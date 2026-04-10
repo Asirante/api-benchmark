@@ -22,10 +22,16 @@ export const options = {
   ],
 };
 
+// 각 VU(가상 사용자)별로 최초 1회만 연결을 수행하도록 상태를 관리하는 변수입니다.
+let isConnected = false;
+
 export default function () {
-  // 포트 고갈 방지를 위한 커넥션 재사용 (Connection Pooling)
-  clientDirect.connect('benchmark_grpc:50051', { plaintext: true });
-  clientEnvoy.connect('benchmark_envoy:8082', { plaintext: true });
+  // 연결이 맺어져 있지 않은 경우에만 단 한 번 connect를 호출하여, HTTP/2 멀티플렉싱을 통한 커넥션 재사용을 보장합니다.
+  if (!isConnected) {
+    clientDirect.connect('benchmark_grpc:50051', { plaintext: true });
+    clientEnvoy.connect('benchmark_envoy:8082', { plaintext: true });
+    isConnected = true;
+  }
 
   const validId = 'e481f51cbdc54678b7cc49136f2d6af7'; 
   const invalidId = 'fake_invalid_id_9999';            
@@ -149,10 +155,6 @@ export default function () {
     const resGrpcErr = clientDirect.invoke('order.OrderService/GetSimpleOrder', { order_id: invalidId }, { tags: { tc: 'tc7', api: 'grpc_error' } });
     check(resGrpcErr, { 'TC7 gRPC Error': (r) => r && r.status !== grpc.StatusOK });
   });
-
-  
-  clientDirect.close();
-  clientEnvoy.close();
 
   sleep(1); 
 }
