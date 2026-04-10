@@ -2,8 +2,13 @@ import http from 'k6/http';
 import grpc from 'k6/net/grpc';
 import { check, group, sleep } from 'k6';
 
-const client = new grpc.Client();
-client.load(['proto'], 'order.proto');
+// Direct 통신용 클라이언트
+const clientDirect = new grpc.Client();
+clientDirect.load(['proto'], 'order.proto');
+
+// Envoy 프록시 통신용 클라이언트 추가
+const clientEnvoy = new grpc.Client();
+clientEnvoy.load(['proto'], 'order.proto');
 
 // [TC 8] 스파이크(Spike) 부하 시나리오: 정상 -> 1차 폭증 -> 회복 -> 2차 최대 폭증 -> 회복
 export const options = {
@@ -20,34 +25,38 @@ export const options = {
   ],
 };
 
-// 각 VU(가상 사용자)별로 최초 1회만 연결을 수행하도록 상태를 관리하는 변수입니다.
+// 각 VU별 커넥션 상태 관리 변수
 let isConnected = false;
 
 export default function () {
-  // 연결이 맺어져 있지 않은 경우에만 단 한 번 connect를 호출하여, HTTP/2 멀티플렉싱을 통한 커넥션 재사용을 보장합니다.
+  // 최초 1회만 Direct와 Envoy 모두 연결하여 커넥션 재사용
   if (!isConnected) {
-    client.connect('benchmark_grpc:50051', { plaintext: true });
+    clientDirect.connect('benchmark_grpc:50051', { plaintext: true });
+    clientEnvoy.connect('benchmark_envoy:8082', { plaintext: true }); // Envoy 포트(8082) 연결 추가
     isConnected = true;
   }
 
   const validId = 'e481f51cbdc54678b7cc49136f2d6af7'; 
   const gqlHeaders = { 'Content-Type': 'application/json' };
 
-  // 다중 테이블 조인 API를 대상으로 프로토콜별 처리 효율 및 한계 검증
   group('TC8: Spike Load Evaluation', function () {
     
-    // REST: 동시 연결에 따른 소켓 부족 및 다중 객체 매핑(JSON 파싱) 부하 관찰
+    // 1. REST
     const resRest = http.get(`http://benchmark_rest:8080/api/v1/orders/details/${validId}`, { tags: { tc: 'tc8_spike', api: 'rest' } });
     check(resRest, { 'REST Spike OK': (r) => r.status === 200 });
 
-    // GraphQL: 스파이크 트래픽에 따른 백엔드 리졸버(Resolver) 연산 병목 관찰
+    // 2. GraphQL
     const gqlPayload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_id items { product_name } customer { customer_city } } }` });
     const resGql = http.post('http://benchmark_graphql:8081/query', gqlPayload, { headers: gqlHeaders, tags: { tc: 'tc8_spike', api: 'graphql' } });
-    check(resGql, { 'GQL Spike OK': (r) => r.status === 200 });
+    check(resGql, { 'GQL Spike OK': (r) => r.status === 200 && r.json().errors === undefined });
 
-    // gRPC: HTTP/2 기반 단일 커넥션 멀티플렉싱(Multiplexing)을 통한 트래픽 방어 성능 검증
-    const resGrpc = client.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc8_spike', api: 'grpc' } });
-    check(resGrpc, { 'gRPC Spike OK': (r) => r && r.status === grpc.StatusOK });
+    // 3. gRPC Direct (순수 백엔드 통신)
+    const resDirect = clientDirect.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc8_spike', api: 'grpc_direct' } });
+    check(resDirect, { 'gRPC Direct Spike OK': (r) => r && r.status === grpc.StatusOK });
+
+    // 4. gRPC Envoy (L7 프록시 경유 통신 - 차단율 관찰용)
+    const resEnvoy = clientEnvoy.invoke('order.OrderService/GetOrderDetails', { order_id: validId }, { tags: { tc: 'tc8_spike', api: 'grpc_envoy' } });
+    check(resEnvoy, { 'gRPC Envoy Spike OK': (r) => r && r.status === grpc.StatusOK });
   });
 
   sleep(1); 
