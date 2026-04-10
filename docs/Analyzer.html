@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API Benchmark Analyzer - Gigant Vision v1.9</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+
+        :root {
+            --bg-body: #020617;
+            --bg-card: #0f172a;
+            --bg-card-soft: rgba(30, 41, 59, 0.4);
+            --text-main: #ffffff;
+            --text-dim: #cbd5e1;
+            --text-muted: #94a3b8;
+            --border: #1e293b;
+            --border-strong: #334155;
+            --accent: #3b82f6;
+            --table-hover: rgba(59, 130, 246, 0.18);
+        }
+
+        [data-theme='light'] {
+            --bg-body: #f8fafc;
+            --bg-card: #ffffff;
+            --bg-card-soft: rgba(226, 232, 240, 0.5);
+            --text-main: #0f172a;
+            --text-dim: #334155;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --border-strong: #cbd5e1;
+            --accent: #1d4ed8;
+            --table-hover: #eff6ff;
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: 'Pretendard', sans-serif;
+            transition: background-color 0.2s ease, color 0.2s ease;
+            -webkit-font-smoothing: antialiased;
+            font-size: 0.875rem;
+        }
+
+        /* 테마 변수 기반 유틸리티 클래스 (Tailwind 하드코딩 색상 대체) */
+        .t-text-main { color: var(--text-main); }
+        .t-text-dim { color: var(--text-dim); }
+        .t-text-muted { color: var(--text-muted); }
+        .t-border { border-color: var(--border); }
+        .t-border-strong { border-color: var(--border-strong); }
+        .t-bg-soft { background-color: var(--bg-card-soft); }
+
+        /* 카드 - 패딩 축소 */
+        .card {
+            background-color: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 0.75rem;
+            padding: 1.25rem;
+            box-shadow: 0 4px 12px -4px rgba(0,0,0,0.2);
+            transition: background-color 0.2s ease, border-color 0.2s ease;
+        }
+
+        /* 테이블 - 가독성 유지하되 컴팩트하게 */
+        table { width: 100%; border-collapse: separate; border-spacing: 0; }
+        th {
+            background-color: var(--bg-card-soft);
+            padding: 0.75rem 1rem;
+            text-align: left;
+            font-size: 0.75rem;
+            font-weight: 800;
+            color: var(--text-dim);
+            cursor: pointer;
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            border-bottom: 2px solid var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        th:hover { color: var(--accent); }
+        td {
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid var(--border);
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: var(--text-main);
+        }
+        tr:hover td { background-color: var(--table-hover); }
+
+        /* 필터 칩 */
+        .filter-chip {
+            padding: 0.5rem 0.875rem;
+            border-radius: 8px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.15s;
+            border: 1px solid var(--border-strong);
+            user-select: none;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 0.4rem;
+            background-color: var(--bg-body);
+            color: var(--text-dim);
+        }
+        .filter-chip:hover { border-color: var(--accent); }
+        .filter-chip.active {
+            background-color: var(--accent);
+            color: #ffffff;
+            border-color: var(--accent);
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
+        }
+        .filter-chip.disabled { opacity: 0.25; cursor: not-allowed; border-style: dashed; }
+        .filter-chip.disabled:hover { border-color: var(--border-strong); }
+
+        .metric-label-ko {
+            font-size: 0.65rem;
+            display: block;
+            opacity: 0.75;
+            font-weight: 700;
+            color: var(--accent);
+            margin-bottom: 1px;
+        }
+        .metric-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.9rem; }
+
+        .filter-scroll-area { max-height: 360px; overflow-y: auto; padding-right: 0.5rem; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+
+        #loading-overlay { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); display: none; }
+
+        .theme-toggle-btn {
+            background: var(--bg-card);
+            border: 1px solid var(--border-strong);
+            color: var(--text-main);
+            font-weight: 700;
+            font-size: 0.8rem;
+            transition: all 0.15s;
+        }
+        .theme-toggle-btn:hover { border-color: var(--accent); }
+
+        .btn-primary {
+            background-color: var(--accent);
+            color: #ffffff;
+            font-weight: 700;
+        }
+        .btn-primary:hover { filter: brightness(1.1); }
+
+        .btn-secondary {
+            background-color: var(--bg-card);
+            color: var(--text-dim);
+            border: 1px solid var(--border-strong);
+            font-weight: 700;
+        }
+        .btn-secondary:hover { color: #ef4444; border-color: #ef4444; }
+
+        .section-label {
+            font-size: 0.7rem;
+            font-weight: 800;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+        }
+
+        .chart-title {
+            font-size: 1rem;
+            font-weight: 800;
+            color: var(--text-main);
+            display: flex;
+            align-items: center;
+            gap: 0.6rem;
+            margin-bottom: 1rem;
+        }
+
+        .table-header-bar {
+            background-color: var(--bg-card-soft);
+            border-bottom: 1px solid var(--border);
+        }
+
+        #drop-zone {
+            border: 2px dashed var(--border-strong);
+            background-color: var(--bg-card-soft);
+            transition: all 0.15s;
+        }
+        #drop-zone:hover {
+            border-color: var(--accent);
+            background-color: var(--table-hover);
+        }
+        #drop-zone .dz-title { color: var(--text-muted); }
+        #drop-zone .dz-sub { color: var(--text-dim); }
+    </style>
+</head>
+<body class="min-h-screen p-4 md:p-6" data-theme="light">
+    <!-- Loading Overlay -->
+    <div id="loading-overlay" class="fixed inset-0 z-[100] flex items-center justify-center">
+        <div class="text-center">
+            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mx-auto mb-5"></div>
+            <p class="text-white text-lg font-bold tracking-[0.15em]">ANALYZING DATA...</p>
+        </div>
+    </div>
+
+    <div class="max-w-[1600px] mx-auto">
+        <!-- Header -->
+        <header class="mb-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b t-border pb-5">
+            <div class="flex items-center gap-3">
+                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/30">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="3" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+                </div>
+                <div>
+                    <h1 class="text-xl font-black tracking-tight uppercase t-text-main">API Benchmark Analyzer</h1>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+                <button onclick="toggleTheme()" class="theme-toggle-btn px-3 py-2 rounded-lg flex items-center gap-2">
+                    <span id="theme-icon">☀️</span> <span id="theme-text">LIGHT</span>
+                </button>
+                <input type="file" id="csv-upload" multiple class="hidden" accept=".csv">
+                <button onclick="document.getElementById('csv-upload').click()" class="btn-primary px-5 py-2 rounded-lg text-sm flex items-center gap-2 shadow-md transition-all">
+                    📁 LOAD CSV
+                </button>
+                <button onclick="resetData()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-all">
+                    리셋
+                </button>
+            </div>
+        </header>
+
+        <!-- Drop Zone -->
+        <div id="drop-zone" class="mb-8 rounded-2xl p-12 text-center cursor-pointer">
+            <p class="dz-title text-2xl font-black uppercase tracking-[0.3em] mb-2 opacity-50">Drop Files Here</p>
+            <p class="dz-sub text-sm font-semibold">분석할 CSV 파일들을 이 영역으로 드래그하세요</p>
+        </div>
+
+        <!-- Dashboard -->
+        <div id="dashboard" class="hidden space-y-6 pb-16">
+            <!-- Metrics Cards -->
+            <div id="data-info" class="grid grid-cols-2 lg:grid-cols-4 gap-4"></div>
+
+            <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
+                <!-- Sidebar (Filters) -->
+                <div class="xl:col-span-1 space-y-5">
+                    <div class="card">
+                        <div class="flex items-center justify-between mb-4 border-b t-border pb-3">
+                            <h3 class="section-label">Filters</h3>
+                            <button id="toggle-all-btn" onclick="handleToggleAll()" class="text-xs font-bold text-blue-500 hover:underline">SELECT ALL</button>
+                        </div>
+                        <div class="space-y-5">
+                            <div>
+                                <label class="section-label block mb-2 border-l-4 border-blue-500 pl-2">Test Case [실험]</label>
+                                <div id="filter-tc" class="filter-scroll-area"></div>
+                            </div>
+                            <div>
+                                <label class="section-label block mb-2 border-l-4 border-emerald-500 pl-2">Architecture [구조]</label>
+                                <div id="filter-api" class="filter-scroll-area"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Main Section -->
+                <div class="xl:col-span-4 space-y-6">
+                    <!-- Table Card -->
+                    <div class="card p-0 overflow-hidden">
+                        <div class="table-header-bar px-5 py-3 flex justify-between items-center">
+                            <h2 class="text-sm font-black flex items-center gap-2 t-text-main uppercase tracking-wide">
+                                <span class="w-1 h-5 bg-blue-500 rounded-sm"></span> 성능 지표 데이터 테이블
+                            </h2>
+                            <button onclick="exportToCSV()" class="text-xs font-bold text-blue-500 hover:underline">데이터 내보내기 (CSV)</button>
+                        </div>
+                        <div class="overflow-x-auto max-h-[480px]">
+                            <table id="stats-table">
+                                <thead>
+                                    <tr>
+                                        <th onclick="sortData('tc')">실험 [TC] ↕</th>
+                                        <th onclick="sortData('api')">아키텍처 [API] ↕</th>
+                                        <th onclick="sortData('count')" class="text-right">샘플 ↕</th>
+                                        <th onclick="sortData('avg')" class="text-right">평균 [Avg] ↕</th>
+                                        <th onclick="sortData('p99')" class="text-right">99% [p99] ↕</th>
+                                        <th onclick="sortData('p999')" class="text-right">꼬리 [p99.9] ↕</th>
+                                        <th onclick="sortData('stdDev')" class="text-right">편차 [Std] ↕</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="stats-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+
+                    <!-- Charts List -->
+                    <div class="space-y-5">
+                        <div class="card">
+                            <h3 class="chart-title">
+                                <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                                📈 [시계열] 지연 시간 변화 추이 (Latency ms)
+                            </h3>
+                            <div class="h-[360px]"><canvas id="latencyChart"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <h3 class="chart-title">
+                                <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                                ⚡ [처리량] 초당 요청 처리 수 (TPS)
+                            </h3>
+                            <div class="h-[300px]"><canvas id="tpsChart"></canvas></div>
+                        </div>
+                        <div class="card">
+                            <h3 class="chart-title">
+                                <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
+                                🏆 [비교] 최악의 0.1% 꼬리 지연 시간 비교 (ms)
+                            </h3>
+                            <div class="h-[300px]"><canvas id="p99Chart"></canvas></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let fullData = [];
+        let currentSort = { key: 'p999', asc: true };
+        let filters = { tc: new Set(), api: new Set() };
+        let activeFilters = { tc: new Set(), api: new Set() };
+        let tcApiMap = {};
+        let charts = {};
+        let sessionMeta = { vus: 0, files: 0, rows: 0 };
+
+        const overlay = document.getElementById('loading-overlay');
+
+        function toggleTheme() {
+            const body = document.body;
+            const current = body.getAttribute('data-theme');
+            const next = current === 'dark' ? 'light' : 'dark';
+            body.setAttribute('data-theme', next);
+            document.getElementById('theme-icon').textContent = next === 'dark' ? '🌙' : '☀️';
+            document.getElementById('theme-text').textContent = next === 'dark' ? 'DARK' : 'LIGHT';
+            updateAll();
+        }
+
+        document.getElementById('drop-zone').onclick = () => document.getElementById('csv-upload').click();
+        document.getElementById('drop-zone').addEventListener('dragover', (e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; });
+        document.getElementById('drop-zone').addEventListener('dragleave', (e) => { e.currentTarget.style.borderColor = ''; });
+        document.getElementById('drop-zone').addEventListener('drop', (e) => {
+            e.preventDefault();
+            e.currentTarget.style.borderColor = '';
+            handleFiles(e.dataTransfer.files);
+        });
+        document.getElementById('csv-upload').onchange = (e) => handleFiles(e.target.files);
+
+        async function handleFiles(files) {
+            if (files.length === 0) return;
+            overlay.style.display = 'flex';
+
+            setTimeout(async () => {
+                const loaders = Array.from(files).map(file => {
+                    return new Promise((resolve) => {
+                        Papa.parse(file, {
+                            header: true, skipEmptyLines: true, dynamicTyping: true,
+                            complete: (res) => resolve({ name: file.name, data: res.data })
+                        });
+                    });
+                });
+
+                const results = await Promise.all(loaders);
+                sessionMeta.files += files.length;
+                processBenchmarkData(results);
+                overlay.style.display = 'none';
+            }, 50);
+        }
+
+        function formatK6Time(rawTime) {
+            if (!rawTime) return null;
+            try {
+                const date = new Date(rawTime);
+                if (isNaN(date.getTime())) {
+                    const match = String(rawTime).match(/(\d{2}:\d{2}:\d{2})/);
+                    return match ? match[1] : String(rawTime).split('.')[0];
+                }
+                return date.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch (e) {
+                return String(rawTime).split('.')[0];
+            }
+        }
+
+        function processBenchmarkData(files) {
+            files.forEach(file => {
+                file.data.forEach(row => {
+                    const val = row.value || row.avg || row.mean;
+                    const api = row.api || row.name;
+                    const tc = row.tc || 'etc';
+
+                    if (file.name.includes('vus') || row.metric === 'vus' || api === 'vus') {
+                        if (val > sessionMeta.vus) sessionMeta.vus = Math.round(val);
+                        return;
+                    }
+
+                    if (val === undefined || !api || api === 'vus') return;
+
+                    const timeStr = formatK6Time(row.time);
+                    if (!timeStr) return;
+
+                    const dataRow = {
+                        tc: String(tc).toLowerCase(),
+                        api: String(api).toLowerCase(),
+                        value: parseFloat(val),
+                        time: timeStr
+                    };
+
+                    fullData.push(dataRow);
+                    filters.tc.add(dataRow.tc);
+                    filters.api.add(dataRow.api);
+
+                    if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
+                    tcApiMap[dataRow.tc].add(dataRow.api);
+                });
+            });
+
+            sessionMeta.rows = fullData.length;
+            filters.tc.forEach(v => activeFilters.tc.add(v));
+            filters.api.forEach(v => activeFilters.api.add(v));
+            initDashboard();
+        }
+
+        function initDashboard() {
+            document.getElementById('dashboard').classList.remove('hidden');
+            document.getElementById('drop-zone').classList.add('hidden');
+            renderFilterUI();
+            updateAll();
+        }
+
+        function handleToggleAll() {
+            const allSelected = (activeFilters.tc.size === filters.tc.size);
+            if (allSelected) {
+                activeFilters.tc.clear();
+                activeFilters.api.clear();
+            } else {
+                filters.tc.forEach(v => activeFilters.tc.add(v));
+                filters.api.forEach(v => activeFilters.api.add(v));
+            }
+            renderFilterUI();
+            updateAll();
+        }
+
+        function renderFilterUI() {
+            const tcContainer = document.getElementById('filter-tc');
+            const apiContainer = document.getElementById('filter-api');
+
+            const availableApis = new Set();
+            activeFilters.tc.forEach(tc => {
+                if (tcApiMap[tc]) tcApiMap[tc].forEach(a => availableApis.add(a));
+            });
+            if (activeFilters.tc.size === 0) filters.api.forEach(a => availableApis.add(a));
+
+            tcContainer.innerHTML = '';
+            Array.from(filters.tc).sort().forEach(val => {
+                const isActive = activeFilters.tc.has(val);
+                const chip = document.createElement('div');
+                chip.innerHTML = `<span class="uppercase tracking-tight">${val}</span> ${isActive ? '✓' : ''}`;
+                chip.className = `filter-chip ${isActive ? 'active' : ''}`;
+                chip.onclick = () => {
+                    if (isActive) {
+                        activeFilters.tc.delete(val);
+                        const apisToRemove = tcApiMap[val] || [];
+                        apisToRemove.forEach(a => {
+                            let keep = false;
+                            activeFilters.tc.forEach(otherTc => {
+                                if (tcApiMap[otherTc] && tcApiMap[otherTc].has(a)) keep = true;
+                            });
+                            if (!keep) activeFilters.api.delete(a);
+                        });
+                    } else {
+                        activeFilters.tc.add(val);
+                        if (tcApiMap[val]) tcApiMap[val].forEach(a => activeFilters.api.add(a));
+                    }
+                    renderFilterUI();
+                    updateAll();
+                };
+                tcContainer.appendChild(chip);
+            });
+
+            apiContainer.innerHTML = '';
+            Array.from(filters.api).sort().forEach(val => {
+                const isAvailable = availableApis.has(val);
+                const isActive = activeFilters.api.has(val);
+                const chip = document.createElement('div');
+                chip.innerHTML = `<span class="uppercase tracking-tight">${val}</span> ${isActive ? '✓' : ''}`;
+                chip.className = `filter-chip ${!isAvailable ? 'disabled' : (isActive ? 'active' : '')}`;
+                if (isAvailable) {
+                    chip.onclick = () => {
+                        if (isActive) activeFilters.api.delete(val);
+                        else activeFilters.api.add(val);
+                        renderFilterUI();
+                        updateAll();
+                    };
+                }
+                apiContainer.appendChild(chip);
+            });
+
+            document.getElementById('toggle-all-btn').textContent = (activeFilters.tc.size === filters.tc.size && filters.tc.size > 0) ? 'DESELECT ALL' : 'SELECT ALL';
+        }
+
+        function updateAll() {
+            const filtered = fullData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
+            renderSummary(filtered.length);
+            const grouped = groupData(filtered);
+            renderTable(grouped);
+            renderCharts(filtered);
+        }
+
+        function groupData(data) {
+            const groups = {};
+            data.forEach(d => {
+                const key = `${d.tc}|${d.api}`;
+                if (!groups[key]) groups[key] = [];
+                groups[key].push(d.value);
+            });
+            return Object.entries(groups).map(([key, vals]) => {
+                const [tc, api] = key.split('|');
+                const sorted = [...vals].sort((a,b)=>a-b);
+                const sum = sorted.reduce((a,b)=>a+b, 0);
+                const avg = sum / sorted.length;
+                const getP = (p) => sorted[Math.floor((sorted.length-1)*p)];
+                const variance = sorted.reduce((a,b)=>a+Math.pow(b-avg,2),0) / sorted.length;
+                return { tc, api, count: sorted.length, avg: avg.toFixed(2), p95: getP(0.95).toFixed(2), p99: getP(0.99).toFixed(2), p999: getP(0.999).toFixed(2), stdDev: Math.sqrt(variance).toFixed(2) };
+            });
+        }
+
+        function sortData(key) {
+            if (currentSort.key === key) currentSort.asc = !currentSort.asc;
+            else { currentSort.key = key; currentSort.asc = true; }
+            updateAll();
+        }
+
+        function renderSummary(filteredRows) {
+            const info = document.getElementById('data-info');
+            info.innerHTML = `
+                <div class="card border-l-4 border-blue-500">
+                    <div class="section-label mb-1">MAX SCALE [최대 유저수]</div>
+                    <div class="text-2xl font-black t-text-main">${sessionMeta.vus || 'N/A'} <span class="text-xs font-bold t-text-muted">VUs</span></div>
+                </div>
+                <div class="card border-l-4 border-emerald-500">
+                    <div class="section-label mb-1">SESSIONS [세션 파일]</div>
+                    <div class="text-2xl font-black t-text-main">${sessionMeta.files} <span class="text-xs font-bold t-text-muted">CSV</span></div>
+                </div>
+                <div class="card border-l-4 border-purple-500">
+                    <div class="section-label mb-1">SAMPLES [분석 데이터]</div>
+                    <div class="text-2xl font-black text-purple-500">${(filteredRows/1000).toFixed(1)}k <span class="text-xs font-bold t-text-muted">PTS</span></div>
+                </div>
+                <div class="card border-l-4 border-slate-500">
+                    <div class="section-label mb-1">TOTAL VOLUME [전체 규모]</div>
+                    <div class="text-2xl font-black t-text-muted">${(sessionMeta.rows/1000).toFixed(0)}k <span class="text-xs font-bold t-text-muted">ROWS</span></div>
+                </div>
+            `;
+        }
+
+        function renderTable(groupedData) {
+            const tbody = document.getElementById('stats-body');
+            const k = currentSort.key;
+            const asc = currentSort.asc;
+            const sorted = groupedData.sort((a,b) => {
+                let v1 = a[k], v2 = b[k];
+                if (!isNaN(v1)) return asc ? v1 - v2 : v2 - v1;
+                return asc ? String(v1).localeCompare(String(v2)) : String(v2).localeCompare(String(v1));
+            });
+            tbody.innerHTML = sorted.map(d => `
+                <tr>
+                    <td class="font-bold text-xs uppercase t-text-dim">${d.tc}</td>
+                    <td><span class="px-2.5 py-1 rounded-md text-xs font-black uppercase border" style="color:${getApiColor(d.api)}; background:${getApiColor(d.api)}1a; border-color:${getApiColor(d.api)}40">${d.api}</span></td>
+                    <td class="text-right t-text-muted font-mono font-bold text-xs">${d.count.toLocaleString()}</td>
+                    <td class="text-right metric-val text-blue-500"><span class="metric-label-ko">[평균 지연]</span>${d.avg} ms</td>
+                    <td class="text-right metric-val t-text-dim"><span class="metric-label-ko">[99% 지연]</span>${d.p99} ms</td>
+                    <td class="text-right metric-val text-red-500 font-black bg-red-500/10 px-2 py-1 rounded-lg border border-red-500/30"><span class="metric-label-ko" style="color:#ef4444">[꼬리 지연]</span>${d.p999} ms</td>
+                    <td class="text-right t-text-muted font-mono text-xs">${d.stdDev}</td>
+                </tr>
+            `).join('');
+        }
+
+        function renderCharts(data) {
+            if (data.length === 0) { Object.values(charts).forEach(c => c.destroy()); charts = {}; return; }
+            const timeline = {}; const apiTotals = {};
+            data.forEach(d => {
+                if (!timeline[d.time]) timeline[d.time] = {};
+                if (!timeline[d.time][d.api]) timeline[d.time][d.api] = [];
+                timeline[d.time][d.api].push(d.value);
+                if (!apiTotals[d.api]) apiTotals[d.api] = [];
+                apiTotals[d.api].push(d.value);
+            });
+            const times = Object.keys(timeline).sort();
+            const apis = Object.keys(apiTotals).sort();
+
+            updateChart('latencyChart', 'line', times, apis.map(api => ({
+                label: api.toUpperCase(),
+                data: times.map(t => { const v = timeline[t][api]; return v ? (v.reduce((a,b)=>a+b,0)/v.length).toFixed(1) : null; }),
+                borderColor: getApiColor(api), backgroundColor: getApiColor(api)+'15',
+                borderWidth: 2.5, tension: 0.15, pointRadius: 0, fill: true
+            })), 'Latency [지연 시간] (ms)');
+
+            updateChart('tpsChart', 'line', times, apis.map(api => ({
+                label: api.toUpperCase(),
+                data: times.map(t => timeline[t][api] ? timeline[t][api].length : 0),
+                borderColor: getApiColor(api), borderWidth: 2, tension: 0.4, pointRadius: 0
+            })), 'Throughput [초당 처리량] (TPS)');
+
+            updateChart('p99Chart', 'bar', apis.map(a => a.toUpperCase()), [{
+                label: 'p99.9 Tail Latency (ms)',
+                data: apis.map(api => { const s = [...apiTotals[api]].sort((a,b)=>a-b); return s[Math.floor((s.length-1)*0.999)]; }),
+                backgroundColor: apis.map(a => getApiColor(a)+'80'), borderColor: apis.map(a => getApiColor(a)),
+                borderWidth: 2, borderRadius: 8
+            }], 'ms');
+        }
+
+        function updateChart(id, type, labels, datasets, yLabel) {
+            if (charts[id]) charts[id].destroy();
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#e2e8f0' : '#0f172a';
+            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+            charts[id] = new Chart(document.getElementById(id).getContext('2d'), {
+                type, data: { labels, datasets },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    animation: { duration: 300 }, interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        y: {
+                            beginAtZero: true, grid: { color: gridColor, lineWidth: 1 },
+                            title: { display: true, text: yLabel, color: textColor, font: { size: 12, weight: '700' } },
+                            ticks: { color: textColor, font: { size: 11, weight: '600' } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: textColor, font: { size: 11, weight: '600' }, autoSkip: true, maxTicksLimit: 12 }
+                        }
+                    },
+                    plugins: {
+                        legend: { position: 'top', labels: { color: textColor, font: { size: 11, weight: '700' }, usePointStyle: true, boxWidth: 10, padding: 15 } },
+                        tooltip: {
+                            backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                            titleFont: { size: 12, weight: 'bold' }, bodyFont: { size: 11 },
+                            titleColor: isDark ? '#ffffff' : '#0f172a', bodyColor: isDark ? '#e2e8f0' : '#0f172a',
+                            borderColor: '#3b82f6', borderWidth: 1, padding: 10
+                        }
+                    }
+                }
+            });
+        }
+
+        function getApiColor(api) {
+            const a = api.toLowerCase();
+            if (a.includes('grpc_direct')) return '#10b981';
+            if (a.includes('grpc_envoy')) return '#a855f7';
+            if (a.includes('grpc')) return '#10b981';
+            if (a.includes('gql') || a.includes('graphql')) return '#ec4899';
+            if (a.includes('rest')) return '#3b82f6';
+            return '#64748b';
+        }
+
+        function resetData() { location.reload(); }
+        function exportToCSV() {
+            const filtered = fullData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
+            if (filtered.length === 0) return;
+            const csv = Papa.unparse(filtered);
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.setAttribute("download", `gigant_report_${new Date().getTime()}.csv`);
+            link.click();
+        }
+    </script>
+</body>
+</html>
