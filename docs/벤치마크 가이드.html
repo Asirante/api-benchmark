@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 벤치마크 가이드라인</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+        body {
+            font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol', sans-serif;
+            background-color: #f8fafc;
+            -webkit-font-smoothing: antialiased;
+        }
+        ::selection {
+            background-color: #bfdbfe;
+            color: #1e3a8a;
+        }
+    </style>
+</head>
+<body class="text-slate-700 leading-relaxed">
+
+    <!-- Header -->
+    <header class="bg-slate-900 border-b border-slate-800 text-white pt-16 pb-12">
+        <div class="max-w-4xl mx-auto px-6">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-blue-500/10 border border-blue-500/20 text-blue-400 text-sm font-medium mb-6">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                API Architecture Framework
+            </div>
+            <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-4 text-slate-50">벤치마크 통합 가이드</h1>
+            <p class="text-slate-400 text-lg font-light max-w-2xl">manage.sh 스크립트 사용법부터 CSV 데이터 엑셀 분석까지 한 번에 마스터하기</p>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto px-6 py-12 space-y-16">
+
+        <!-- Section 0: Alias Setup -->
+        <section>
+            <div class="bg-blue-50 border border-blue-100 rounded-2xl p-6 sm:p-8 shadow-sm">
+                <div class="flex items-start gap-4">
+                    <div class="bg-blue-100 p-2.5 rounded-lg text-blue-600 shrink-0 mt-1">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"></path></svg>
+                    </div>
+                    <div>
+                        <h2 class="text-xl font-bold text-blue-950 mb-2">단축 명령어(bm) 설정하기 <span class="text-sm font-normal text-blue-700 bg-blue-100/50 px-2 py-0.5 rounded ml-2">최초 1회 필수</span></h2>
+                        <p class="mb-4 text-blue-800/80 text-sm">매번 <code>./manage.sh test-all 2000</code> 치기 귀찮으시죠? 아래 명령어를 한 번만 실행하면 앞으로는 <b>bm</b> 두 글자만 쳐서 스크립트를 실행할 수 있습니다.</p>
+                        
+                        <div class="space-y-4 mt-5">
+                            <div class="flex gap-4 items-center">
+                                <div class="w-6 h-6 rounded-full bg-blue-200 text-blue-700 flex items-center justify-center text-sm font-bold shrink-0">1</div>
+                                <div class="flex-1">
+                                    <p class="text-sm text-blue-900 mb-1">터미널에 아래 명령어를 복사해서 붙여넣고 엔터를 칩니다:</p>
+                                    <code class="block bg-slate-900 text-blue-300 p-3 rounded-lg font-mono text-sm border border-slate-800 shadow-inner">./manage.sh setup-alias</code>
+                                </div>
+                            </div>
+                            <div class="flex gap-4 items-center">
+                                <div class="w-6 h-6 rounded-full bg-blue-200 text-blue-700 flex items-center justify-center text-sm font-bold shrink-0">2</div>
+                                <p class="text-sm text-blue-900 flex-1">스크립트가 알려주는 <code class="bg-white/60 px-1.5 py-0.5 rounded text-blue-800 border border-blue-200 font-mono">source ~/.bashrc</code> (또는 zshrc) 명령어를 터미널에 한 번 더 입력합니다.</p>
+                            </div>
+                            <div class="flex gap-4 items-center">
+                                <div class="w-6 h-6 rounded-full bg-blue-600 text-white flex items-center justify-center text-sm font-bold shrink-0">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+                                </div>
+                                <p class="text-sm text-blue-900 flex-1"><strong class="text-blue-700">설정 완료!</strong> 이제부터는 <code class="font-mono bg-white/60 px-1.5 py-0.5 rounded text-blue-800 border border-blue-200">bm start</code>처럼 짧게 사용하세요.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 1: Quick Start -->
+        <section>
+            <div class="flex items-center gap-3 mb-6">
+                <div class="p-2 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-900">퀵 스타트 <span class="text-base font-normal text-slate-500 ml-2">바쁘면 이것만 보세요</span></h2>
+            </div>
+            
+            <div class="grid md:grid-cols-3 gap-4">
+                <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:border-slate-300 transition-colors">
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Step 1</div>
+                    <div class="font-bold text-slate-800 mb-4">서버 켜기</div>
+                    <code class="block bg-slate-50 border border-slate-200 text-slate-800 p-3 rounded-lg font-mono text-sm text-center font-medium">bm start</code>
+                </div>
+                
+                <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:border-blue-300 transition-colors ring-1 ring-blue-50">
+                    <div class="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-2">Step 2</div>
+                    <div class="font-bold text-slate-800 mb-4">테스트 실행 & 데이터 추출</div>
+                    <code class="block bg-blue-50 border border-blue-100 text-blue-700 p-3 rounded-lg font-mono text-sm text-center font-bold">bm test-all 2000</code>
+                    <p class="text-xs text-slate-500 mt-3 leading-relaxed">표준, 프록시, 스파이크 테스트가 차례로 돌고 KST 시간 기준의 CSV가 자동 생성됩니다.</p>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:border-slate-300 transition-colors">
+                    <div class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Step 3</div>
+                    <div class="font-bold text-slate-800 mb-4">서버 끄기</div>
+                    <code class="block bg-slate-50 border border-slate-200 text-slate-800 p-3 rounded-lg font-mono text-sm text-center font-medium">bm stop</code>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 2: Command Reference -->
+        <section>
+            <div class="flex items-center gap-3 mb-6">
+                <div class="p-2 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                </div>
+                <h2 class="text-2xl font-bold text-slate-900">명령어 사전</h2>
+            </div>
+            
+            <div class="bg-white border border-slate-200 rounded-xl shadow-sm overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-left text-sm whitespace-nowrap">
+                        <thead class="bg-slate-50 border-b border-slate-200 text-slate-600">
+                            <tr>
+                                <th class="py-4 px-6 font-semibold">명령어</th>
+                                <th class="py-4 px-6 font-semibold">설명</th>
+                                <th class="py-4 px-6 font-semibold">사용 예시</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100 text-slate-600">
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm setup-alias</td>
+                                <td class="py-4 px-6"><code>bm</code> 단축키를 터미널 환경에 영구 등록합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">./manage.sh setup-alias</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors bg-blue-50/20">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm test-all [VUs]</td>
+                                <td class="py-4 px-6"><span class="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded font-semibold mr-2">추천</span>TC1~9 전체 순차 실행 후 CSV/백업 자동 생성</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm test-all 5000</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm test [VUs]</td>
+                                <td class="py-4 px-6">기본 아키텍처 비교(TC1~7)만 단독으로 실행합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm test 1000</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm export-csv</td>
+                                <td class="py-4 px-6">역대 저장된 <b>모든 데이터</b>를 엑셀용 CSV로 추출합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm export-csv</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm export-csv - [VUs]</td>
+                                <td class="py-4 px-6">특정 인원수(VUs)로 테스트했던 데이터만 필터링합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm export-csv - 1000</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm restart</td>
+                                <td class="py-4 px-6">서버 중지 후 강제로 새로고침(재시작)합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm restart</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm clean</td>
+                                <td class="py-4 px-6 text-red-600/80">모든 컨테이너와 <b>데이터베이스 볼륨까지 완전히 삭제</b>합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm clean</code></td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div class="mt-4 flex gap-4 bg-red-50/80 border border-red-100 p-4 sm:p-5 rounded-xl">
+                <div class="text-red-500 shrink-0 mt-0.5">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
+                </div>
+                <div>
+                    <strong class="block text-red-800 text-sm mb-1">고부하 테스트 시 주의사항</strong>
+                    <p class="text-sm text-red-700/80 leading-relaxed">VUs 5000 이상의 고부하 테스트나 스파이크 테스트(TC8)가 돌아가는 동안에는 PC 자원 보호를 위해 <b>유튜브 시청, 무거운 프로그램 실행 등을 자제해주세요.</b> 벤치마크 결과에 왜곡이 발생할 수 있습니다.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 3: Data Analysis Guide -->
+        <section>
+            <div class="flex items-center gap-3 mb-6">
+                <div class="p-2 bg-white border border-slate-200 rounded-lg shadow-sm text-slate-500">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold text-slate-900">CSV 데이터 관전 포인트</h2>
+                    <p class="text-sm text-slate-500 mt-1"><code>./csv_results/</code> 폴더에 생성된 파일들은 각각 시스템의 속도와 체력을 의미합니다.</p>
+                </div>
+            </div>
+
+            <div class="grid md:grid-cols-2 gap-6">
+                <!-- Card 1 -->
+                <div class="border border-slate-200 p-6 rounded-xl bg-white shadow-sm flex flex-col">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold text-slate-900 font-mono">http_req_duration.csv</h3>
+                        <p class="text-xs text-slate-500 mt-1">grpc_req_duration.csv 포함</p>
+                    </div>
+                    <div class="mb-6 flex-1">
+                        <div class="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 text-slate-700 text-xs font-semibold mb-3">응답 속도 (Latency, ms)</div>
+                        <p class="text-sm text-slate-600">클라이언트가 요청을 보내고 응답을 받기까지 걸린 시간입니다. <b>값이 낮을수록 좋습니다.</b></p>
+                    </div>
+                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-4">
+                        <strong class="block text-slate-800 text-sm mb-3">관전 포인트</strong>
+                        <ul class="text-sm text-slate-600 space-y-3">
+                            <li class="flex gap-2">
+                                <span class="text-blue-500 shrink-0">•</span>
+                                <span><b class="text-slate-800 font-medium">TC3 (Under-fetching):</b> REST의 2번 호출 시간 합계 vs GraphQL의 1번 호출 시간 비교</span>
+                            </li>
+                            <li class="flex gap-2">
+                                <span class="text-blue-500 shrink-0">•</span>
+                                <span><b class="text-slate-800 font-medium">TC9 (프록시 오버헤드):</b> Envoy를 거친 gRPC와 Direct gRPC의 지연 시간 차이</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Card 2 -->
+                <div class="border border-slate-200 p-6 rounded-xl bg-white shadow-sm flex flex-col">
+                    <div class="mb-4">
+                        <h3 class="text-lg font-bold text-slate-900 font-mono">http_reqs.csv</h3>
+                        <p class="text-xs text-slate-500 mt-1 opacity-0">공백 맞춤용</p>
+                    </div>
+                    <div class="mb-6 flex-1">
+                        <div class="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 text-slate-700 text-xs font-semibold mb-3">초당 처리량 (Throughput / TPS)</div>
+                        <p class="text-sm text-slate-600">서버가 1초에 몇 개의 요청을 안정적으로 처리해냈는지를 보여주는 체력입니다. <b>값이 높을수록 좋습니다.</b></p>
+                    </div>
+                    <div class="bg-slate-50 border border-slate-100 rounded-lg p-4">
+                        <strong class="block text-slate-800 text-sm mb-3">관전 포인트</strong>
+                        <ul class="text-sm text-slate-600 space-y-3">
+                            <li class="flex gap-2">
+                                <span class="text-blue-500 shrink-0">•</span>
+                                <span><b class="text-slate-800 font-medium">스파이크 방어력 (TC8):</b> 10,000명이 몰릴 때 처리량이 0으로 떨어지는(서버 다운) API는 무엇인가?</span>
+                            </li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Section 4: Excel Pivot Magic -->
+        <section>
+            <div class="bg-slate-900 text-slate-300 rounded-2xl shadow-lg border border-slate-800 overflow-hidden">
+                <div class="p-8 sm:p-10 border-b border-slate-800">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="p-2 bg-blue-500/10 border border-blue-500/20 rounded-lg text-blue-400">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
+                        </div>
+                        <h2 class="text-2xl font-bold text-white">엑셀 피벗 테이블로 1분 만에 보고서 만들기</h2>
+                    </div>
+                    <p class="text-slate-400">수만 줄의 CSV 데이터를 복잡한 함수 없이 피벗 테이블 4번의 클릭으로 요약하세요.</p>
+                </div>
+
+                <div class="p-8 sm:p-10 bg-slate-900/50">
+                    <ol class="space-y-6">
+                        <li class="flex gap-4">
+                            <div class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center font-bold shrink-0">1</div>
+                            <div>
+                                <h4 class="text-white font-medium mb-1">CSV 열기 & 전체 선택</h4>
+                                <p class="text-sm text-slate-400"><code>http_req_duration.csv</code> 파일을 엑셀로 열고 <kbd class="bg-slate-800 border border-slate-700 rounded px-2 py-0.5 text-xs text-slate-300 font-sans mx-1 shadow-sm">Ctrl + A</kbd>를 눌러 전체를 선택합니다.</p>
+                            </div>
+                        </li>
+                        <li class="flex gap-4">
+                            <div class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center font-bold shrink-0">2</div>
+                            <div>
+                                <h4 class="text-white font-medium mb-1">피벗 테이블 삽입</h4>
+                                <p class="text-sm text-slate-400">엑셀 상단 메뉴에서 <b>[삽입] - [피벗 테이블]</b>을 클릭하고 확인을 누릅니다.</p>
+                            </div>
+                        </li>
+                        <li class="flex gap-4">
+                            <div class="w-8 h-8 rounded-full bg-slate-800 text-slate-400 border border-slate-700 flex items-center justify-center font-bold shrink-0">3</div>
+                            <div class="w-full">
+                                <h4 class="text-white font-medium mb-2">필드 배치</h4>
+                                <p class="text-sm text-slate-400 mb-3">우측 피벗 테이블 필드창에서 아래와 같이 드래그 앤 드롭 하세요.</p>
+                                <div class="bg-slate-950 rounded-lg p-4 border border-slate-800 text-sm grid gap-2">
+                                    <div class="flex items-center gap-3"><span class="w-16 text-slate-500">행(Rows)</span> <code class="text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded font-mono">tc</code> <span class="text-slate-500 text-xs">(TC1, TC2 등 시나리오 기준)</span></div>
+                                    <div class="flex items-center gap-3"><span class="w-16 text-slate-500">열(Cols)</span> <code class="text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded font-mono">api</code> <span class="text-slate-500 text-xs">(rest, graphql, grpc 기준)</span></div>
+                                    <div class="flex items-center gap-3"><span class="w-16 text-slate-500">값(Vals)</span> <code class="text-blue-400 bg-blue-900/20 px-2 py-0.5 rounded font-mono">value</code></div>
+                                </div>
+                            </div>
+                        </li>
+                        <li class="flex gap-4">
+                            <div class="w-8 h-8 rounded-full bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center font-bold shrink-0">4</div>
+                            <div>
+                                <h4 class="text-blue-400 font-medium mb-1">값 설정 변경 (가장 중요)</h4>
+                                <p class="text-sm text-slate-400">값 영역에 들어간 'value'를 클릭하고 <b>[값 필드 설정]</b>에 들어가서 계산 방식을 '합계'가 아닌 <b class="text-white bg-slate-800 px-2 py-0.5 rounded ml-1">평균(Average)</b>으로 변경합니다.</p>
+                            </div>
+                        </li>
+                    </ol>
+                    
+                    <div class="mt-8 pt-6 border-t border-slate-800 text-center">
+                        <p class="text-sm text-slate-400">🎉 위 4단계를 거치면 논문/보고서에 바로 복사해서 붙여넣을 수 있는<br><strong class="text-white mt-1 inline-block">"시나리오별/프로토콜별 평균 응답속도 비교표"</strong>가 완성됩니다!</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+    </main>
+
+    <footer class="border-t border-slate-200 mt-12 py-8 text-center text-slate-500 text-sm">
+        <p>API Architecture Benchmark Framework &copy; 2026</p>
+    </footer>
+
+</body>
+</html>

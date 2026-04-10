@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v6.1 - 기존 구조 유지 + KST 시간대/엑셀 포맷만 추가)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v7.0 - Alias(bm) 자동 설정 기능 추가)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -70,24 +70,20 @@ export_csv() {
     fi
     echo "============================================================"
 
-    # 뽑아낼 핵심 지표들 (REST/GQL 응답속도, gRPC 응답속도, 처리량, VU수)
+    # 뽑아낼 핵심 지표들
     local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "vus")
     
     for metric in "${metrics[@]}"; do
         echo "  - [${metric}] 데이터 추출 중..."
         
-        # [수정된 부분 1] tz('Asia/Seoul')을 쿼리 끝에 붙여서 시간대를 한국으로 맞춤
         local query="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         
-        # vus 지표는 api, tc 태그가 없으므로 쿼리를 조금 다르게 처리
         if [ "$metric" == "vus" ]; then
              query="SELECT \"time\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         fi
 
-        # [수정된 부분 2] -precision rfc3339 옵션을 추가하여 엑셀이 시간을 똑바로 읽게 함
         docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "${current_csv_dir}/${metric}.csv"
         
-        # 파일이 비어있는지(데이터가 없는지) 확인
         if [ ! -s "${current_csv_dir}/${metric}.csv" ] || [ $(wc -l < "${current_csv_dir}/${metric}.csv") -le 1 ]; then
             echo "    -> (데이터 없음)"
         fi
@@ -123,6 +119,36 @@ run_k6() {
 }
 
 case "$COMMAND" in
+  setup-alias)
+    echo "[진행] 터미널에 'bm' 단축 명령어(Alias)를 영구 등록합니다..."
+    
+    # 사용자의 기본 쉘 설정 파일 탐색 (bash 또는 zsh)
+    SHELL_RC="$HOME/.bashrc"
+    if [[ "$SHELL" == *"zsh"* ]] || [ -f "$HOME/.zshrc" ]; then
+        SHELL_RC="$HOME/.zshrc"
+    fi
+    
+    # 현재 manage.sh의 절대 경로 추출
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    SCRIPT_PATH="${SCRIPT_DIR}/manage.sh"
+    
+    # 이미 등록되어 있는지 확인
+    if grep -q "alias bm=" "$SHELL_RC"; then
+        echo "[알림] 이미 $SHELL_RC 파일에 'bm' alias가 등록되어 있습니다."
+    else
+        echo "" >> "$SHELL_RC"
+        echo "# API Benchmark Alias" >> "$SHELL_RC"
+        echo "alias bm='$SCRIPT_PATH'" >> "$SHELL_RC"
+        echo "[완료] $SHELL_RC 파일에 등록을 완료했습니다!"
+    fi
+    
+    echo "============================================================"
+    echo " [필수] 변경사항을 적용하려면 터미널에 아래 명령어를 직접 입력하세요:"
+    echo " source $SHELL_RC"
+    echo "============================================================"
+    echo " 적용 후에는 어느 폴더에서든 'bm start', 'bm test-all 2000' 등으로 사용할 수 있습니다."
+    ;;
+
   start)
     echo "[진행] 환경 빌드 및 실행..."
     docker compose up -d --build
@@ -183,15 +209,15 @@ case "$COMMAND" in
     run_k6 "benchmark_envoy.js" "proxy_overhead" "$VUS_ARG"
     sleep 5
 
-    echo -e "\n>>> 3단계: 극단적 스파이크 테스트 시작 <<<"
-    run_k6 "benchmark_tc8.js" "spike" "max_10k"
+    # echo -e "\n>>> 3단계: 극단적 스파이크 테스트 시작 <<<"
+    # run_k6 "benchmark_tc8.js" "spike" "max_10k"
     
-    echo -e "\n>>> 4단계: 테스트 결과 데이터 자동 추출 <<<"
+    echo -e "\n>>> 3단계: 테스트 결과 데이터 자동 추출 <<<"
     export_data
-    export_csv "all" # 테스트 종료 후 전체 CSV 자동 추출
+    export_csv "all" 
     
     echo "============================================================"
-    echo " [완료] 모든 테스트가 종료되고 데이터가 백업되었습니다."
+    echo " [완료] 스파이크 부하 테스트를 제외한 모든 테스트가 종료되고 데이터가 백업되었습니다."
     echo "============================================================"
     ;;
 
@@ -200,8 +226,6 @@ case "$COMMAND" in
     ;;
 
   export-csv)
-    # 3번째 인자값을 확인 (예: ./manage.sh export-csv - 1000)
-    # 값이 없으면 자동으로 전체(all) 추출
     TARGET_VUS=${3:-all}
     export_csv "$TARGET_VUS"
     ;;
@@ -214,11 +238,14 @@ case "$COMMAND" in
   *)
     echo "사용법: ./manage.sh [명령어] [VUs]"
     echo "----------------------------------------------------------------------"
+    echo " [초기 설정 (최초 1회)]"
+    echo "  setup-alias           : './manage.sh'를 'bm'으로 줄여쓰도록 환경 설정"
+    echo ""
     echo " [테스트 실행]"
-    echo "  test [VUs]      : [TC1~7] 기본 아키텍처 비교 (예: ./manage.sh test 2000)"
-    echo "  test-proxy [VUs]: [TC9] 프록시 오버헤드 비교"
-    echo "  test-spike      : [TC8] 스파이크 테스트"
-    echo "  test-all [VUs]  : [권장] 3개 테스트 연속 실행 후 데이터 자동 백업/CSV 추출"
+    echo "  test [VUs]            : [TC1~7] 기본 아키텍처 비교 (예: ./manage.sh test 2000)"
+    echo "  test-proxy [VUs]      : [TC9] 프록시 오버헤드 비교"
+    echo "  test-spike            : [TC8] 스파이크 테스트"
+    echo "  test-all [VUs]        : [권장] 2개 테스트 연속 실행 후 데이터 자동 백업/CSV 추출"
     echo ""
     echo " [데이터 추출]"
     echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출"
