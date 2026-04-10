@@ -89,7 +89,7 @@
                     <div class="text-xs font-semibold text-blue-500 uppercase tracking-wider mb-2">Step 2</div>
                     <div class="font-bold text-slate-800 mb-4">테스트 실행 & 데이터 추출</div>
                     <code class="block bg-blue-50 border border-blue-100 text-blue-700 p-3 rounded-lg font-mono text-sm text-center font-bold">bm test-all 2000</code>
-                    <p class="text-xs text-slate-500 mt-3 leading-relaxed">표준, 프록시, 스파이크 테스트가 차례로 돌고 KST 시간 기준의 CSV가 자동 생성됩니다.</p>
+                    <p class="text-xs text-slate-500 mt-3 leading-relaxed">표준 및 프록시 테스트가 차례로 돌고 KST 시간 기준의 CSV가 자동 생성됩니다. <br><span class="text-blue-500 font-medium">(※ 스파이크 테스트는 제외)</span></p>
                 </div>
 
                 <div class="bg-white border border-slate-200 rounded-xl p-6 shadow-sm hover:border-slate-300 transition-colors">
@@ -127,13 +127,18 @@
                             </tr>
                             <tr class="hover:bg-slate-50/50 transition-colors bg-blue-50/20">
                                 <td class="py-4 px-6 font-mono font-medium text-blue-600">bm test-all [VUs]</td>
-                                <td class="py-4 px-6"><span class="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded font-semibold mr-2">추천</span>TC1~9 전체 순차 실행 후 CSV/백업 자동 생성</td>
+                                <td class="py-4 px-6"><span class="inline-block bg-blue-100 text-blue-700 text-xs px-2 py-0.5 rounded font-semibold mr-2">추천</span>기본 및 프록시 테스트 순차 실행 후 자동 추출 <span class="text-slate-400 ml-1">(TC8 제외)</span></td>
                                 <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm test-all 5000</code></td>
                             </tr>
                             <tr class="hover:bg-slate-50/50 transition-colors">
                                 <td class="py-4 px-6 font-mono font-medium text-blue-600">bm test [VUs]</td>
                                 <td class="py-4 px-6">기본 아키텍처 비교(TC1~7)만 단독으로 실행합니다.</td>
                                 <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm test 1000</code></td>
+                            </tr>
+                            <tr class="hover:bg-slate-50/50 transition-colors">
+                                <td class="py-4 px-6 font-mono font-medium text-blue-600">bm test-spike</td>
+                                <td class="py-4 px-6">스파이크 부하 테스트(TC8)만 단독으로 실행합니다.</td>
+                                <td class="py-4 px-6"><code class="bg-slate-100 text-slate-600 px-2 py-1 rounded font-mono text-xs">bm test-spike</code></td>
                             </tr>
                             <tr class="hover:bg-slate-50/50 transition-colors">
                                 <td class="py-4 px-6 font-mono font-medium text-blue-600">bm export-csv</td>
@@ -165,7 +170,7 @@
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
                 </div>
                 <div>
-                    <strong class="block text-red-800 text-sm mb-1">고부하 테스트 시 주의사항</strong>
+                    <strong class="block text-red-800 text-sm mb-1">고부하 및 스파이크 테스트 시 주의사항</strong>
                     <p class="text-sm text-red-700/80 leading-relaxed">VUs 5000 이상의 고부하 테스트나 스파이크 테스트(TC8)가 돌아가는 동안에는 PC 자원 보호를 위해 <b>유튜브 시청, 무거운 프로그램 실행 등을 자제해주세요.</b> 벤치마크 결과에 왜곡이 발생할 수 있습니다.</p>
                 </div>
             </div>
@@ -224,7 +229,7 @@
                         <ul class="text-sm text-slate-600 space-y-3">
                             <li class="flex gap-2">
                                 <span class="text-blue-500 shrink-0">•</span>
-                                <span><b class="text-slate-800 font-medium">스파이크 방어력 (TC8):</b> 10,000명이 몰릴 때 처리량이 0으로 떨어지는(서버 다운) API는 무엇인가?</span>
+                                <span><b class="text-slate-800 font-medium">스파이크 방어력 (TC8):</b> 10,000명이 몰릴 때 처리량이 0으로 떨어지는(서버 다운) API는 무엇인가? <span class="text-xs text-slate-400 block mt-0.5">(※ bm test-spike 단독 실행 시 확인 가능)</span></span>
                             </li>
                         </ul>
                     </div>

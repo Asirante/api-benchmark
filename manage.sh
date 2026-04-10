@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v7.0 - Alias(bm) 자동 설정 기능 추가)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v7.2 - 세션 기반 독립 추출 완벽 분리)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -33,10 +33,11 @@ init_influx_db() {
 
 # [핵심 2] 바이너리 데이터 추출 (백업) 함수
 export_data() {
+    local prefix=${1:-"k6_backup"}
     echo "[진행] InfluxDB 바이너리 데이터 백업을 시작합니다..."
     
     mkdir -p $BACKUP_DIR
-    local backup_name="k6_backup_${TIMESTAMP}"
+    local backup_name="${prefix}_${TIMESTAMP}"
     local container_backup_path="/var/lib/influxdb/${backup_name}"
     
     echo "  - 컨테이너 내부 백업 생성 중..."
@@ -51,22 +52,25 @@ export_data() {
     echo "[완료] 바이너리 데이터 백업 완료. 경로: ${BACKUP_DIR}/${backup_name}"
 }
 
-# [핵심 3] CSV 다중 추출 함수 (전체 or 특정 VUs 필터링 + 한국 시간 및 엑셀 포맷 적용)
+# [핵심 3] CSV 다중 추출 함수 (세션 분리 기능 추가)
 export_csv() {
-    local target_vus=$1
+    local mode=$1
     local current_csv_dir="${CSV_DIR}/export_${TIMESTAMP}"
     mkdir -p "$current_csv_dir"
 
     echo "============================================================"
     echo "  [진행] InfluxDB 데이터를 CSV로 추출합니다. (한국 시간 기준)"
     
-    # 쿼리 조건 설정 (인자가 없거나 'all'이면 전체 추출, 숫자면 해당 VUs만 추출)
+    # 쿼리 조건 설정 (current면 방금 실행한 테스트 세션만, all이면 전체)
     local condition=""
-    if [ -z "$target_vus" ] || [ "$target_vus" == "all" ]; then
+    if [ "$mode" == "current" ]; then
+        echo "  - 추출 범위: [방금 실행된 테스트 세션] 전용 데이터만 단독 추출"
+        condition="WHERE \"session_id\"='${TIMESTAMP}'"
+    elif [ -z "$mode" ] || [ "$mode" == "all" ]; then
         echo "  - 추출 범위: 역대 저장된 [전체 데이터]"
     else
-        echo "  - 추출 범위: [VUs = ${target_vus}] 조건에 맞는 데이터만"
-        condition="WHERE \"vus_group\"='${target_vus}'"
+        echo "  - 추출 범위: [VUs = ${mode}] 조건에 맞는 데이터만"
+        condition="WHERE \"vus_group\"='${mode}'"
     fi
     echo "============================================================"
 
@@ -95,7 +99,7 @@ export_csv() {
     echo "============================================================"
 }
 
-# [핵심 4] k6 실행기
+# [핵심 4] k6 실행기 (session_id 태그 추가)
 run_k6() {
     local script_file=$1
     local test_type=$2
@@ -115,6 +119,7 @@ run_k6() {
       --tag run_id="${test_type}_${vus}_${TIMESTAMP}" \
       --tag test_type="$test_type" \
       --tag vus_group="$vus" \
+      --tag session_id="${TIMESTAMP}" \
       "$script_file"
 }
 
@@ -122,17 +127,14 @@ case "$COMMAND" in
   setup-alias)
     echo "[진행] 터미널에 'bm' 단축 명령어(Alias)를 영구 등록합니다..."
     
-    # 사용자의 기본 쉘 설정 파일 탐색 (bash 또는 zsh)
     SHELL_RC="$HOME/.bashrc"
     if [[ "$SHELL" == *"zsh"* ]] || [ -f "$HOME/.zshrc" ]; then
         SHELL_RC="$HOME/.zshrc"
     fi
     
-    # 현재 manage.sh의 절대 경로 추출
     SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     SCRIPT_PATH="${SCRIPT_DIR}/manage.sh"
     
-    # 이미 등록되어 있는지 확인
     if grep -q "alias bm=" "$SHELL_RC"; then
         echo "[알림] 이미 $SHELL_RC 파일에 'bm' alias가 등록되어 있습니다."
     else
@@ -146,7 +148,6 @@ case "$COMMAND" in
     echo " [필수] 변경사항을 적용하려면 터미널에 아래 명령어를 직접 입력하세요:"
     echo " source $SHELL_RC"
     echo "============================================================"
-    echo " 적용 후에는 어느 폴더에서든 'bm start', 'bm test-all 2000' 등으로 사용할 수 있습니다."
     ;;
 
   start)
@@ -167,7 +168,6 @@ case "$COMMAND" in
     echo "[진행] 기존 컨테이너를 완전히 중지하고 새롭게 빌드하여 재시작합니다..."
     docker compose down
     docker compose up -d --build
-    echo "[진행] InfluxDB가 완전히 켜질 때까지 5초 대기..."
     sleep 5 
     init_influx_db
     ;;
@@ -193,12 +193,17 @@ case "$COMMAND" in
     init_influx_db
     echo "[알림] 스파이크 부하 테스트를 시작합니다. (스크립트 내 하드코딩된 최대 10,000 VUs로 동작)"
     run_k6 "benchmark_tc8.js" "spike" "max_10k"
+    
+    echo -e "\n>>> 스파이크 테스트 결과 단독 자동 추출 <<<"
+    export_data "spike_backup"
+    export_csv "current"
     ;;
 
   test-all)
     init_influx_db
     echo "============================================================"
     echo "  [자동화] 모든 벤치마크 시나리오 순차 실행 (목표: $VUS_ARG VUs) "
+    echo "  * 주의: 스파이크 테스트(TC8)는 과부하 방지를 위해 자동 실행에서 제외됩니다."
     echo "============================================================"
     
     echo -e "\n>>> 1단계: 표준 아키텍처 테스트 시작 <<<"
@@ -208,16 +213,13 @@ case "$COMMAND" in
     echo -e "\n>>> 2단계: Envoy 프록시 오버헤드 테스트 시작 <<<"
     run_k6 "benchmark_envoy.js" "proxy_overhead" "$VUS_ARG"
     sleep 5
-
-    # echo -e "\n>>> 3단계: 극단적 스파이크 테스트 시작 <<<"
-    # run_k6 "benchmark_tc8.js" "spike" "max_10k"
     
     echo -e "\n>>> 3단계: 테스트 결과 데이터 자동 추출 <<<"
-    export_data
-    export_csv "all" 
+    export_data "k6_backup"
+    export_csv "current"
     
     echo "============================================================"
-    echo " [완료] 스파이크 부하 테스트를 제외한 모든 테스트가 종료되고 데이터가 백업되었습니다."
+    echo " [완료] 테스트가 종료되고 현재 세션의 데이터만 분리 백업되었습니다."
     echo "============================================================"
     ;;
 
@@ -244,8 +246,8 @@ case "$COMMAND" in
     echo " [테스트 실행]"
     echo "  test [VUs]            : [TC1~7] 기본 아키텍처 비교 (예: ./manage.sh test 2000)"
     echo "  test-proxy [VUs]      : [TC9] 프록시 오버헤드 비교"
-    echo "  test-spike            : [TC8] 스파이크 테스트"
-    echo "  test-all [VUs]        : [권장] 2개 테스트 연속 실행 후 데이터 자동 백업/CSV 추출"
+    echo "  test-spike            : [TC8] 스파이크 테스트 (실행 후 해당 데이터만 독립 자동 추출)"
+    echo "  test-all [VUs]        : [권장] 스파이크 제외 연속 실행 후 해당 데이터만 독립 추출"
     echo ""
     echo " [데이터 추출]"
     echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출"
