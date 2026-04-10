@@ -150,5 +150,9 @@ export default function () {
     check(resGrpcErr, { 'TC7 gRPC Error': (r) => r && r.status !== grpc.StatusOK });
   });
 
+  
+  clientDirect.close();
+  clientEnvoy.close();
+
   sleep(1); 
 }

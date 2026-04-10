@@ -59,6 +59,9 @@ export default function () {
     const resEnvoyErr = clientEnvoy.invoke('order.OrderService/GetSimpleOrder', { order_id: invalidId }, { tags: { tc: 'tc9_error', api: 'grpc_envoy' } });
     check(resEnvoyErr, { 'Envoy Error Checked': (r) => r && r.status !== grpc.StatusOK });
   });
+  
+  clientDirect.close();
+  clientEnvoy.close();
 
   sleep(1); 
 }

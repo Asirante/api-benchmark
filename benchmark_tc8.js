@@ -44,5 +44,6 @@ export default function () {
     check(resGrpc, { 'gRPC Spike OK': (r) => r && r.status === grpc.StatusOK });
   });
 
+  client.close();
   sleep(1); 
 }
