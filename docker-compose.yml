@@ -106,6 +106,8 @@ services:
       - "8086:8086"
     environment:
       - INFLUXDB_DB=k6
+    volumes:
+      - influxdb_data:/var/lib/influxdb
 
   grafana:
     image: grafana/grafana:latest
@@ -124,3 +126,4 @@ services:
 volumes:
   pgdata:
   grafana_data:
+  influxdb_data:

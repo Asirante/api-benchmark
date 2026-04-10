@@ -1,16 +1,134 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v6.1 - 기존 구조 유지 + KST 시간대/엑셀 포맷만 추가)
 # 권한 부여: chmod +x manage.sh
-# 실행 방법: ./manage.sh [명령어]
 
 COMMAND=$1
+VUS_ARG=${2:-1000} # 두 번째 인자가 없으면 기본 1000 VUs
+TIMESTAMP=$(date +%Y%m%d_%H%M%S)
+
+# 인플럭스 DB 연결 정보
+INFLUX_DB_NAME="k6"
+INFLUX_URL="http://benchmark_influxdb:8086"
+BACKUP_DIR="./influxdb_backups"
+CSV_DIR="./csv_results"
+
+# [핵심 1] DB 상태 체크 및 자동 생성
+init_influx_db() {
+    echo "[진행] InfluxDB 컨테이너 상태 및 데이터베이스 확인 중..."
+    
+    if ! docker ps | grep -q benchmark_influxdb; then
+        echo "[에러] benchmark_influxdb 컨테이너가 실행 중이지 않습니다. './manage.sh start'를 먼저 실행하세요."
+        exit 1
+    fi
+
+    docker exec benchmark_influxdb influx -execute "CREATE DATABASE $INFLUX_DB_NAME"
+    if [ $? -eq 0 ]; then
+        echo "[완료] '$INFLUX_DB_NAME' 데이터베이스 준비 완료."
+    else
+        echo "[에러] 데이터베이스 생성/연결 실패"
+        exit 1
+    fi
+}
+
+# [핵심 2] 바이너리 데이터 추출 (백업) 함수
+export_data() {
+    echo "[진행] InfluxDB 바이너리 데이터 백업을 시작합니다..."
+    
+    mkdir -p $BACKUP_DIR
+    local backup_name="k6_backup_${TIMESTAMP}"
+    local container_backup_path="/var/lib/influxdb/${backup_name}"
+    
+    echo "  - 컨테이너 내부 백업 생성 중..."
+    docker exec benchmark_influxdb influxd backup -portable -database $INFLUX_DB_NAME $container_backup_path
+    
+    echo "  - 로컬 환경($BACKUP_DIR)으로 데이터 복사 중..."
+    docker cp benchmark_influxdb:$container_backup_path "${BACKUP_DIR}/${backup_name}"
+    
+    echo "  - 컨테이너 내부 찌꺼기 삭제 중..."
+    docker exec benchmark_influxdb rm -rf $container_backup_path
+    
+    echo "[완료] 바이너리 데이터 백업 완료. 경로: ${BACKUP_DIR}/${backup_name}"
+}
+
+# [핵심 3] CSV 다중 추출 함수 (전체 or 특정 VUs 필터링 + 한국 시간 및 엑셀 포맷 적용)
+export_csv() {
+    local target_vus=$1
+    local current_csv_dir="${CSV_DIR}/export_${TIMESTAMP}"
+    mkdir -p "$current_csv_dir"
+
+    echo "============================================================"
+    echo "  [진행] InfluxDB 데이터를 CSV로 추출합니다. (한국 시간 기준)"
+    
+    # 쿼리 조건 설정 (인자가 없거나 'all'이면 전체 추출, 숫자면 해당 VUs만 추출)
+    local condition=""
+    if [ -z "$target_vus" ] || [ "$target_vus" == "all" ]; then
+        echo "  - 추출 범위: 역대 저장된 [전체 데이터]"
+    else
+        echo "  - 추출 범위: [VUs = ${target_vus}] 조건에 맞는 데이터만"
+        condition="WHERE \"vus_group\"='${target_vus}'"
+    fi
+    echo "============================================================"
+
+    # 뽑아낼 핵심 지표들 (REST/GQL 응답속도, gRPC 응답속도, 처리량, VU수)
+    local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "vus")
+    
+    for metric in "${metrics[@]}"; do
+        echo "  - [${metric}] 데이터 추출 중..."
+        
+        # [수정된 부분 1] tz('Asia/Seoul')을 쿼리 끝에 붙여서 시간대를 한국으로 맞춤
+        local query="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
+        
+        # vus 지표는 api, tc 태그가 없으므로 쿼리를 조금 다르게 처리
+        if [ "$metric" == "vus" ]; then
+             query="SELECT \"time\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
+        fi
+
+        # [수정된 부분 2] -precision rfc3339 옵션을 추가하여 엑셀이 시간을 똑바로 읽게 함
+        docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "${current_csv_dir}/${metric}.csv"
+        
+        # 파일이 비어있는지(데이터가 없는지) 확인
+        if [ ! -s "${current_csv_dir}/${metric}.csv" ] || [ $(wc -l < "${current_csv_dir}/${metric}.csv") -le 1 ]; then
+            echo "    -> (데이터 없음)"
+        fi
+    done
+    
+    echo "============================================================"
+    echo " [완료] CSV 추출이 완료되었습니다! 엑셀에서 바로 열어보세요."
+    echo " 저장 위치: $current_csv_dir"
+    echo "============================================================"
+}
+
+# [핵심 4] k6 실행기
+run_k6() {
+    local script_file=$1
+    local test_type=$2
+    local vus=$3
+
+    echo "------------------------------------------------------------"
+    echo "[실행] 테스트 유형: $test_type | 대상: $script_file | VUs: $vus"
+    echo "------------------------------------------------------------"
+
+    docker run --rm -i \
+      --ulimit nofile=65535:65535 \
+      -v $(pwd):/app -w /app \
+      --network api-benchmark_default \
+      -e VUS=$vus \
+      grafana/k6 run \
+      --out influxdb=$INFLUX_URL/$INFLUX_DB_NAME \
+      --tag run_id="${test_type}_${vus}_${TIMESTAMP}" \
+      --tag test_type="$test_type" \
+      --tag vus_group="$vus" \
+      "$script_file"
+}
 
 case "$COMMAND" in
   start)
-    echo "[진행] 벤치마크 서버 환경 빌드 및 백그라운드 실행..."
+    echo "[진행] 환경 빌드 및 실행..."
     docker compose up -d --build
-    echo "[완료] 서버가 실행되었습니다. 'bm logs'로 상태를 확인하십시오."
+    echo "[진행] InfluxDB가 완전히 켜질 때까지 5초 대기..."
+    sleep 5 
+    init_influx_db
     ;;
   
   stop)
@@ -18,19 +136,74 @@ case "$COMMAND" in
     docker compose down
     echo "[완료] 서버가 중지되었습니다."
     ;;
-  
+
   restart)
-    echo "[진행] 서버 재시작 및 최신 코드 반영..."
+    echo "[진행] 기존 컨테이너를 완전히 중지하고 새롭게 빌드하여 재시작합니다..."
     docker compose down
     docker compose up -d --build
-    echo "[완료] 재시작이 완료되었습니다."
+    echo "[진행] InfluxDB가 완전히 켜질 때까지 5초 대기..."
+    sleep 5 
+    init_influx_db
     ;;
-  
+
   clean)
-    echo "[진행] 도커 환경 초기화 진행 중..."
-    echo "[경고] 데이터베이스 볼륨 및 빌드된 이미지가 삭제됩니다."
+    echo "[경고] 모든 데이터와 이미지를 삭제합니다."
     docker compose down -v --rmi all
-    echo "[완료] 초기화가 완료되었습니다."
+    ;;
+
+  test)
+    init_influx_db
+    echo "[테스트] 기본 아키텍처 벤치마크 시작 (목표 VUs: ${VUS_ARG})"
+    run_k6 "benchmark.js" "standard" "$VUS_ARG"
+    ;;
+
+  test-proxy)
+    init_influx_db
+    echo "[알림] Envoy 프록시 오버헤드 측정을 시작합니다."
+    run_k6 "benchmark_envoy.js" "proxy_overhead" "$VUS_ARG"
+    ;;
+
+  test-spike)
+    init_influx_db
+    echo "[알림] 스파이크 부하 테스트를 시작합니다. (스크립트 내 하드코딩된 최대 10,000 VUs로 동작)"
+    run_k6 "benchmark_tc8.js" "spike" "max_10k"
+    ;;
+
+  test-all)
+    init_influx_db
+    echo "============================================================"
+    echo "  [자동화] 모든 벤치마크 시나리오 순차 실행 (목표: $VUS_ARG VUs) "
+    echo "============================================================"
+    
+    echo -e "\n>>> 1단계: 표준 아키텍처 테스트 시작 <<<"
+    run_k6 "benchmark.js" "standard" "$VUS_ARG"
+    sleep 5
+    
+    echo -e "\n>>> 2단계: Envoy 프록시 오버헤드 테스트 시작 <<<"
+    run_k6 "benchmark_envoy.js" "proxy_overhead" "$VUS_ARG"
+    sleep 5
+
+    echo -e "\n>>> 3단계: 극단적 스파이크 테스트 시작 <<<"
+    run_k6 "benchmark_tc8.js" "spike" "max_10k"
+    
+    echo -e "\n>>> 4단계: 테스트 결과 데이터 자동 추출 <<<"
+    export_data
+    export_csv "all" # 테스트 종료 후 전체 CSV 자동 추출
+    
+    echo "============================================================"
+    echo " [완료] 모든 테스트가 종료되고 데이터가 백업되었습니다."
+    echo "============================================================"
+    ;;
+
+  export)
+    export_data
+    ;;
+
+  export-csv)
+    # 3번째 인자값을 확인 (예: ./manage.sh export-csv - 1000)
+    # 값이 없으면 자동으로 전체(all) 추출
+    TARGET_VUS=${3:-all}
+    export_csv "$TARGET_VUS"
     ;;
 
   logs)
@@ -38,69 +211,23 @@ case "$COMMAND" in
     docker compose logs -f
     ;;
 
-  test)
-    VUS=${2:-1000}
-    echo "[테스트] 기본 아키텍처(REST, GraphQL, gRPC) 벤치마크 시작 (목표 VUs: ${VUS})"
-    echo "데이터베이스 초기화 중..."
-    docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
-    docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
-    
-    echo "부하 생성 시작 (benchmark.js 실행)"
-    docker run --rm -i \
-      --ulimit nofile=65535:65535 \
-      -v $(pwd):/app -w /app \
-      --network api-benchmark_default \
-      -e VUS=$VUS \
-      grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark.js
-    
-    echo "[완료] 테스트가 종료되었습니다."
-    ;;
-    
-  test-proxy)
-    VUS=${2:-1000}
-    echo "[테스트] Envoy 프록시 오버헤드 벤치마크 시작 (목표 VUs: ${VUS})"
-    echo "데이터베이스 초기화 중..."
-    docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
-    docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
-    
-    echo "부하 생성 시작 (benchmark_envoy.js 실행)"
-    docker run --rm -i \
-      --ulimit nofile=65535:65535 \
-      -v $(pwd):/app -w /app \
-      --network api-benchmark_default \
-      -e VUS=$VUS \
-      grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark_envoy.js
-    
-    echo "[완료] 프록시 테스트가 종료되었습니다."
-    ;;
-
-  test-spike)
-    echo "[테스트] 극단적 스파이크(Spike) 부하 테스트 시작 (목표 VUs: 최대 10,000)"
-    echo "데이터베이스 초기화 중..."
-    docker exec benchmark_influxdb influx -execute "DROP DATABASE k6"
-    docker exec benchmark_influxdb influx -execute "CREATE DATABASE k6"
-    
-    echo "스파이크 부하 생성 시작 (benchmark_tc8.js 실행)"
-    docker run --rm -i \
-      --ulimit nofile=65535:65535 \
-      -v $(pwd):/app -w /app \
-      --network api-benchmark_default \
-      grafana/k6 run --out influxdb=http://benchmark_influxdb:8086/k6 benchmark_tc8.js
-    
-    echo "[완료] 스파이크 테스트가 종료되었습니다."
-    ;;
-
   *)
-    echo "사용법: ./manage.sh [명령어]"
-    echo "------------------------------------------------------------"
-    echo "  start      : 컨테이너 새로 빌드 및 실행"
-    echo "  stop       : 컨테이너 중지"
-    echo "  restart    : 중지 후 다시 빌드 및 실행"
-    echo "  clean      : 컨테이너, 이미지, DB 볼륨 완전 삭제"
-    echo "  logs       : 컨테이너 실시간 로그 출력"
-    echo "  test       : [TC1~7] 기본 아키텍처 비교 부하 테스트 (기본 VUs 1000)"
-    echo "  test-proxy : [TC9] Envoy 프록시 오버헤드 측정 테스트 (기본 VUs 1000)"
-    echo "  test-spike : [TC8] 스파이크 생존력 평가 테스트 (최대 10,000 VUs)"
+    echo "사용법: ./manage.sh [명령어] [VUs]"
+    echo "----------------------------------------------------------------------"
+    echo " [테스트 실행]"
+    echo "  test [VUs]      : [TC1~7] 기본 아키텍처 비교 (예: ./manage.sh test 2000)"
+    echo "  test-proxy [VUs]: [TC9] 프록시 오버헤드 비교"
+    echo "  test-spike      : [TC8] 스파이크 테스트"
+    echo "  test-all [VUs]  : [권장] 3개 테스트 연속 실행 후 데이터 자동 백업/CSV 추출"
+    echo ""
+    echo " [데이터 추출]"
+    echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출"
+    echo "  export-csv - 1000     : VUs가 1000인 데이터만 필터링하여 CSV로 추출"
+    echo "  export                : InfluxDB 바이너리 전체 백업"
+    echo ""
+    echo " [환경 관리]"
+    echo "  start / stop / restart / clean / logs"
+    echo "----------------------------------------------------------------------"
     exit 1
     ;;
 esac
