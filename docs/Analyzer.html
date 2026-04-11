@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
 
@@ -184,6 +185,154 @@
             border-bottom: 1px solid var(--border);
         }
 
+        /* Chart Export */
+        .chart-export-btn {
+            background: var(--bg-card-soft);
+            border: 1px solid var(--border-strong);
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.35rem 0.7rem;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+        .chart-export-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--table-hover);
+        }
+        .chart-export-dropdown {
+            position: absolute;
+            right: 0;
+            top: 100%;
+            margin-top: 4px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-strong);
+            border-radius: 10px;
+            padding: 0.5rem;
+            z-index: 50;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+            min-width: 200px;
+            display: none;
+        }
+        .chart-export-dropdown.show { display: block; }
+        .chart-export-dropdown .export-option {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            padding: 0.55rem 0.75rem;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.78rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            transition: all 0.1s;
+        }
+        .chart-export-dropdown .export-option:hover {
+            background: var(--table-hover);
+            color: var(--accent);
+        }
+        .chart-export-dropdown .export-option .fmt-badge {
+            font-size: 0.6rem;
+            font-weight: 800;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            background: var(--bg-card-soft);
+            border: 1px solid var(--border);
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            min-width: 36px;
+            text-align: center;
+        }
+        .export-all-bar {
+            display: flex;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-bottom: 0.75rem;
+        }
+        .export-all-btn {
+            background: linear-gradient(135deg, #3b82f6, #6366f1);
+            color: #fff;
+            font-size: 0.75rem;
+            font-weight: 800;
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            border: none;
+            transition: all 0.15s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+        }
+        .export-all-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        .export-toast {
+            position: fixed;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%) translateY(80px);
+            background: #10b981;
+            color: #fff;
+            padding: 0.75rem 1.5rem;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            font-weight: 700;
+            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
+            z-index: 200;
+            opacity: 0;
+            transition: all 0.3s ease;
+            pointer-events: none;
+        }
+        .export-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+        /* Chart Type Selector */
+        .chart-type-selector {
+            display: inline-flex;
+            gap: 2px;
+            background: var(--bg-body);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 3px;
+        }
+        .chart-type-btn {
+            padding: 0.3rem 0.6rem;
+            border-radius: 6px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: var(--text-muted);
+            transition: all 0.12s;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .chart-type-btn:hover { color: var(--accent); }
+        .chart-type-btn.active {
+            background: var(--accent);
+            color: #fff;
+            box-shadow: 0 1px 4px rgba(59,130,246,0.3);
+        }
+        .chart-type-btn .rec-dot {
+            display: inline-block;
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: #10b981;
+            margin-left: 3px;
+            vertical-align: middle;
+        }
+
         #drop-zone {
             border: 2px dashed var(--border-strong);
             background-color: var(--bg-card-soft);
@@ -294,25 +443,88 @@
 
                     <!-- Charts List -->
                     <div class="space-y-5">
+                        <div class="export-all-bar">
+                            <span class="section-label">Charts</span>
+                            <div style="flex:1"></div>
+                            <select id="export-all-format" style="background:var(--bg-card);border:1px solid var(--border-strong);color:var(--text-dim);font-size:0.7rem;font-weight:700;padding:0.35rem 0.5rem;border-radius:6px;cursor:pointer;">
+                                <option value="png">PNG</option>
+                                <option value="jpg">JPG</option>
+                                <option value="webp">WEBP</option>
+                            </select>
+                            <button class="export-all-btn" onclick="exportAllCharts()">
+                                📦 모두 내보내기
+                            </button>
+                        </div>
+                        <!-- Latency Chart -->
                         <div class="card">
-                            <h3 class="chart-title">
-                                <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
-                                📈 [시계열] 지연 시간 변화 추이 (Latency ms)
-                            </h3>
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                                    📈 [시계열] 지연 시간 변화 추이 (Latency ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-latencyChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'latencyChart')">
+                                            💾 내보내기 ▾
+                                        </button>
+                                        <div class="chart-export-dropdown" id="dropdown-latencyChart">
+                                            <div class="export-option" onclick="exportChart('latencyChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('latencyChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('latencyChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="height:0.75rem"></div>
                             <div class="h-[360px]"><canvas id="latencyChart"></canvas></div>
                         </div>
+                        <!-- TPS Chart -->
                         <div class="card">
-                            <h3 class="chart-title">
-                                <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
-                                ⚡ [처리량] 초당 요청 처리 수 (TPS)
-                            </h3>
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                                    ⚡ [처리량] 초당 요청 처리 수 (TPS)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-tpsChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'tpsChart')">
+                                            💾 내보내기 ▾
+                                        </button>
+                                        <div class="chart-export-dropdown" id="dropdown-tpsChart">
+                                            <div class="export-option" onclick="exportChart('tpsChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('tpsChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('tpsChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="height:0.75rem"></div>
                             <div class="h-[300px]"><canvas id="tpsChart"></canvas></div>
                         </div>
+                        <!-- p99.9 Chart -->
                         <div class="card">
-                            <h3 class="chart-title">
-                                <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
-                                🏆 [비교] 최악의 0.1% 꼬리 지연 시간 비교 (ms)
-                            </h3>
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
+                                    🏆 [비교] 최악의 0.1% 꼬리 지연 시간 비교 (ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-p99Chart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'p99Chart')">
+                                            💾 내보내기 ▾
+                                        </button>
+                                        <div class="chart-export-dropdown" id="dropdown-p99Chart">
+                                            <div class="export-option" onclick="exportChart('p99Chart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('p99Chart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('p99Chart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="height:0.75rem"></div>
                             <div class="h-[300px]"><canvas id="p99Chart"></canvas></div>
                         </div>
                     </div>
@@ -323,6 +535,7 @@
 
     <script>
         let fullData = [];
+        let reqsData = [];  // TPS 차트 전용 (http_reqs, grpc_reqs)
         let currentSort = { key: 'p999', asc: true };
         let filters = { tc: new Set(), api: new Set() };
         let activeFilters = { tc: new Set(), api: new Set() };
@@ -389,12 +602,18 @@
 
         function processBenchmarkData(files) {
             files.forEach(file => {
+                const fname = file.name.toLowerCase();
+                const isDuration = fname.includes('duration');
+                const isReqs = fname.includes('_reqs') && !fname.includes('duration');
+                const isVus = fname.includes('vus');
+
                 file.data.forEach(row => {
                     const val = row.value || row.avg || row.mean;
                     const api = row.api || row.name;
                     const tc = row.tc || 'etc';
 
-                    if (file.name.includes('vus') || row.metric === 'vus' || api === 'vus') {
+                    // VUs 처리
+                    if (isVus || row.metric === 'vus' || api === 'vus') {
                         if (val > sessionMeta.vus) sessionMeta.vus = Math.round(val);
                         return;
                     }
@@ -411,12 +630,17 @@
                         time: timeStr
                     };
 
-                    fullData.push(dataRow);
-                    filters.tc.add(dataRow.tc);
-                    filters.api.add(dataRow.api);
-
-                    if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
-                    tcApiMap[dataRow.tc].add(dataRow.api);
+                    if (isDuration) {
+                        // duration 데이터 → 테이블, Latency 차트, p99.9 차트용
+                        fullData.push(dataRow);
+                        filters.tc.add(dataRow.tc);
+                        filters.api.add(dataRow.api);
+                        if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
+                        tcApiMap[dataRow.tc].add(dataRow.api);
+                    } else if (isReqs) {
+                        // reqs 카운터 데이터 → TPS 차트 전용
+                        reqsData.push(dataRow);
+                    }
                 });
             });
 
@@ -430,6 +654,7 @@
             document.getElementById('dashboard').classList.remove('hidden');
             document.getElementById('drop-zone').classList.add('hidden');
             renderFilterUI();
+            renderChartTypeSelectors();
             updateAll();
         }
 
@@ -446,6 +671,48 @@
             updateAll();
         }
 
+        // TC 한글 라벨 매핑
+        const tcLabels = {
+            'tc1': '단순 조회',
+            'tc2': '대용량 페이징',
+            'tc3': '언더페칭 (N+1)',
+            'tc4': '부분 필드 추출',
+            'tc5': '극한 조인',
+            'tc6': '트랜잭션 쓰기',
+            'tc7': '예외 처리',
+            'tc8_spike': '스파이크 부하',
+            'tc9_simple': '프록시 단순조회',
+            'tc9_heavy': '프록시 대용량',
+            'tc9_error': '프록시 에러',
+        };
+
+        // API 한글 라벨 매핑
+        const apiLabels = {
+            'rest': 'REST API',
+            'graphql': 'GraphQL',
+            'grpc': 'gRPC Direct',
+            'grpc_direct': 'gRPC Direct',
+            'grpc_envoy': 'gRPC Envoy',
+            'rest_part1': 'REST 1차호출',
+            'rest_part2': 'REST 2차호출',
+            'grpc_part1': 'gRPC 1차호출',
+            'grpc_part2': 'gRPC 2차호출',
+            'rest_error': 'REST 에러',
+            'graphql_error': 'GQL 에러',
+            'grpc_error': 'gRPC 에러',
+        };
+
+        function getTcLabel(val) {
+            if (tcLabels[val]) return tcLabels[val];
+            // tc8, tc9 등 부분 매칭 시도
+            const key = Object.keys(tcLabels).find(k => val.startsWith(k));
+            return key ? tcLabels[key] : '';
+        }
+
+        function getApiLabel(val) {
+            return apiLabels[val] || '';
+        }
+
         function renderFilterUI() {
             const tcContainer = document.getElementById('filter-tc');
             const apiContainer = document.getElementById('filter-api');
@@ -459,8 +726,9 @@
             tcContainer.innerHTML = '';
             Array.from(filters.tc).sort().forEach(val => {
                 const isActive = activeFilters.tc.has(val);
+                const label = getTcLabel(val);
                 const chip = document.createElement('div');
-                chip.innerHTML = `<span class="uppercase tracking-tight">${val}</span> ${isActive ? '✓' : ''}`;
+                chip.innerHTML = `<span style="display:flex;flex-direction:column;gap:1px;"><span class="uppercase tracking-tight" style="font-size:0.8rem;">${val}</span>${label ? `<span style="font-size:0.65rem;opacity:0.7;font-weight:600;letter-spacing:0;">${label}</span>` : ''}</span> ${isActive ? '✓' : ''}`;
                 chip.className = `filter-chip ${isActive ? 'active' : ''}`;
                 chip.onclick = () => {
                     if (isActive) {
@@ -487,8 +755,9 @@
             Array.from(filters.api).sort().forEach(val => {
                 const isAvailable = availableApis.has(val);
                 const isActive = activeFilters.api.has(val);
+                const label = getApiLabel(val);
                 const chip = document.createElement('div');
-                chip.innerHTML = `<span class="uppercase tracking-tight">${val}</span> ${isActive ? '✓' : ''}`;
+                chip.innerHTML = `<span style="display:flex;flex-direction:column;gap:1px;"><span class="uppercase tracking-tight" style="font-size:0.8rem;">${val}</span>${label ? `<span style="font-size:0.65rem;opacity:0.7;font-weight:600;letter-spacing:0;">${label}</span>` : ''}</span> ${isActive ? '✓' : ''}`;
                 chip.className = `filter-chip ${!isAvailable ? 'disabled' : (isActive ? 'active' : '')}`;
                 if (isAvailable) {
                     chip.onclick = () => {
@@ -509,24 +778,42 @@
             renderSummary(filtered.length);
             const grouped = groupData(filtered);
             renderTable(grouped);
-            renderCharts(filtered);
+            // 캐시된 전처리 데이터를 저장해서 차트 타입 변경 시 재필터링 방지
+            cachedChartData = preprocessChartData(filtered);
+            renderCharts(cachedChartData);
         }
+
+        // 전처리 결과 캐시 (차트 타입만 바꿀 때 재계산 불필요)
+        let cachedChartData = null;
 
         function groupData(data) {
             const groups = {};
             data.forEach(d => {
                 const key = `${d.tc}|${d.api}`;
-                if (!groups[key]) groups[key] = [];
-                groups[key].push(d.value);
+                if (!groups[key]) groups[key] = { vals: [], sum: 0 };
+                groups[key].vals.push(d.value);
+                groups[key].sum += d.value;
             });
-            return Object.entries(groups).map(([key, vals]) => {
+            return Object.entries(groups).map(([key, g]) => {
                 const [tc, api] = key.split('|');
-                const sorted = [...vals].sort((a,b)=>a-b);
-                const sum = sorted.reduce((a,b)=>a+b, 0);
-                const avg = sum / sorted.length;
-                const getP = (p) => sorted[Math.floor((sorted.length-1)*p)];
-                const variance = sorted.reduce((a,b)=>a+Math.pow(b-avg,2),0) / sorted.length;
-                return { tc, api, count: sorted.length, avg: avg.toFixed(2), p95: getP(0.95).toFixed(2), p99: getP(0.99).toFixed(2), p999: getP(0.999).toFixed(2), stdDev: Math.sqrt(variance).toFixed(2) };
+                const vals = g.vals;
+                const n = vals.length;
+                const avg = g.sum / n;
+                // 부분 정렬: nth_element 대신 full sort (JS에선 이게 최선)
+                // 하지만 정렬은 한 번만 하고 모든 백분위를 한꺼번에 추출
+                vals.sort((a, b) => a - b);
+                const getP = (p) => vals[Math.floor((n - 1) * p)];
+                // 분산 계산: sum of squares 방식 (2-pass → 1-pass)
+                let sqSum = 0;
+                for (let i = 0; i < n; i++) sqSum += (vals[i] - avg) ** 2;
+                return {
+                    tc, api, count: n,
+                    avg: avg.toFixed(2),
+                    p95: getP(0.95).toFixed(2),
+                    p99: getP(0.99).toFixed(2),
+                    p999: getP(0.999).toFixed(2),
+                    stdDev: Math.sqrt(sqSum / n).toFixed(2)
+                };
             });
         }
 
@@ -580,38 +867,210 @@
             `).join('');
         }
 
-        function renderCharts(data) {
-            if (data.length === 0) { Object.values(charts).forEach(c => c.destroy()); charts = {}; return; }
-            const timeline = {}; const apiTotals = {};
-            data.forEach(d => {
-                if (!timeline[d.time]) timeline[d.time] = {};
-                if (!timeline[d.time][d.api]) timeline[d.time][d.api] = [];
-                timeline[d.time][d.api].push(d.value);
-                if (!apiTotals[d.api]) apiTotals[d.api] = [];
-                apiTotals[d.api].push(d.value);
-            });
+        // 차트 데이터 전처리 (필터링된 데이터 → 시계열/집계 1회만 수행)
+        function preprocessChartData(data) {
+            const timeline = {};
+            const apiTotals = {};
+            const n = data.length;
+            for (let i = 0; i < n; i++) {
+                const d = data[i];
+                const t = d.time;
+                const a = d.api;
+                // timeline 집계 (Latency용)
+                if (!timeline[t]) timeline[t] = {};
+                const slot = timeline[t];
+                if (!slot[a]) slot[a] = { sum: 0, count: 0 };
+                slot[a].sum += d.value;
+                slot[a].count++;
+                // api 전체 집계 (p99.9용)
+                if (!apiTotals[a]) apiTotals[a] = [];
+                apiTotals[a].push(d.value);
+            }
+
             const times = Object.keys(timeline).sort();
             const apis = Object.keys(apiTotals).sort();
 
-            updateChart('latencyChart', 'line', times, apis.map(api => ({
-                label: api.toUpperCase(),
-                data: times.map(t => { const v = timeline[t][api]; return v ? (v.reduce((a,b)=>a+b,0)/v.length).toFixed(1) : null; }),
-                borderColor: getApiColor(api), backgroundColor: getApiColor(api)+'15',
-                borderWidth: 2.5, tension: 0.15, pointRadius: 0, fill: true
-            })), 'Latency [지연 시간] (ms)');
+            // TPS용: 하이브리드 방식
+            // - REST/GraphQL → http_reqs (reqsData)에서 카운트 (정확한 요청 카운터)
+            // - gRPC → grpc_req_duration (fullData/timeline)에서 건수 카운트 (grpc_reqs 빌트인 없음)
+            const tpsTimeline = {};
+            const tpsApiSet = new Set();
 
-            updateChart('tpsChart', 'line', times, apis.map(api => ({
-                label: api.toUpperCase(),
-                data: times.map(t => timeline[t][api] ? timeline[t][api].length : 0),
-                borderColor: getApiColor(api), borderWidth: 2, tension: 0.4, pointRadius: 0
-            })), 'Throughput [초당 처리량] (TPS)');
+            // 1) http_reqs 데이터에서 REST/GraphQL TPS 집계
+            const filteredReqs = reqsData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
+            for (let i = 0; i < filteredReqs.length; i++) {
+                const d = filteredReqs[i];
+                if (!tpsTimeline[d.time]) tpsTimeline[d.time] = {};
+                if (!tpsTimeline[d.time][d.api]) tpsTimeline[d.time][d.api] = 0;
+                tpsTimeline[d.time][d.api]++;
+                tpsApiSet.add(d.api);
+            }
 
-            updateChart('p99Chart', 'bar', apis.map(a => a.toUpperCase()), [{
-                label: 'p99.9 Tail Latency (ms)',
-                data: apis.map(api => { const s = [...apiTotals[api]].sort((a,b)=>a-b); return s[Math.floor((s.length-1)*0.999)]; }),
-                backgroundColor: apis.map(a => getApiColor(a)+'80'), borderColor: apis.map(a => getApiColor(a)),
-                borderWidth: 2, borderRadius: 8
-            }], 'ms');
+            // 2) gRPC 계열은 http_reqs에 없으므로, duration 데이터의 건수로 TPS 보충
+            const grpcApis = apis.filter(a => !tpsApiSet.has(a));
+            if (grpcApis.length > 0) {
+                for (const t of times) {
+                    for (const gApi of grpcApis) {
+                        const slot = timeline[t] && timeline[t][gApi];
+                        if (slot && slot.count > 0) {
+                            if (!tpsTimeline[t]) tpsTimeline[t] = {};
+                            tpsTimeline[t][gApi] = slot.count;
+                        }
+                    }
+                }
+            }
+
+            // 3) reqsData도 없고 gRPC도 아닌 경우 전체 fallback
+            const hasTpsData = Object.keys(tpsTimeline).length > 0;
+            const tpsTimes = hasTpsData ? Object.keys(tpsTimeline).sort() : times;
+
+            // p99.9 계산을 위한 정렬은 여기서 1회만
+            const apiP999 = {};
+            apis.forEach(api => {
+                const sorted = apiTotals[api].sort((a, b) => a - b);
+                apiP999[api] = sorted[Math.floor((sorted.length - 1) * 0.999)];
+            });
+            return { timeline, tpsTimeline, apiTotals, apiP999, times, tpsTimes, apis, hasTpsData };
+        }
+
+        /* ── 차트 타입 추천 & 관리 ── */
+        // 각 차트별 사용 가능한 타입과 추천 타입
+        const chartTypeConfig = {
+            latencyChart: {
+                types: ['line', 'bar', 'radar'],
+                labels: { line: 'Line', bar: 'Bar', radar: 'Radar' },
+                recommended: 'line'  // 시계열 데이터는 line이 최적
+            },
+            tpsChart: {
+                types: ['line', 'bar', 'radar'],
+                labels: { line: 'Line', bar: 'Bar', radar: 'Radar' },
+                recommended: 'line'  // 연속 처리량도 line 최적
+            },
+            p99Chart: {
+                types: ['bar', 'polarArea', 'doughnut', 'radar'],
+                labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' },
+                recommended: 'bar'   // API간 비교는 bar 최적
+            }
+        };
+
+        // 현재 선택된 차트 타입 상태
+        const chartTypeState = {
+            latencyChart: 'line',
+            tpsChart: 'line',
+            p99Chart: 'bar'
+        };
+
+        function renderChartTypeSelectors() {
+            Object.keys(chartTypeConfig).forEach(chartId => {
+                const cfg = chartTypeConfig[chartId];
+                const container = document.getElementById('type-sel-' + chartId);
+                if (!container) return;
+                container.innerHTML = cfg.types.map(t => {
+                    const isActive = chartTypeState[chartId] === t;
+                    const isRec = cfg.recommended === t;
+                    return `<button class="chart-type-btn ${isActive ? 'active' : ''}" onclick="changeChartType('${chartId}','${t}')" title="${isRec ? '추천 타입' : ''}">${cfg.labels[t]}${isRec ? '<span class="rec-dot"></span>' : ''}</button>`;
+                }).join('');
+            });
+        }
+
+        function changeChartType(chartId, newType) {
+            chartTypeState[chartId] = newType;
+            renderChartTypeSelectors();
+            if (cachedChartData) renderCharts(cachedChartData);
+        }
+
+        function renderCharts(cd) {
+            if (!cd || cd.apis.length === 0) {
+                Object.values(charts).forEach(c => c.destroy());
+                charts = {};
+                return;
+            }
+            const { timeline, tpsTimeline, apiTotals, apiP999, times, tpsTimes, apis, hasTpsData } = cd;
+
+            // Latency Chart
+            const latencyType = chartTypeState.latencyChart;
+            const latencyDatasets = apis.map(api => {
+                const color = getApiColor(api);
+                const values = times.map(t => {
+                    const slot = timeline[t][api];
+                    return slot ? (slot.sum / slot.count).toFixed(1) : null;
+                });
+                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (latencyType === 'line' ? '15' : '80'), borderWidth: latencyType === 'line' ? 2.5 : 2 };
+                if (latencyType === 'line') Object.assign(base, { tension: 0.15, pointRadius: 0, fill: true });
+                if (latencyType === 'bar') Object.assign(base, { borderRadius: 4 });
+                if (latencyType === 'radar') Object.assign(base, { backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true });
+                return base;
+            });
+            updateChart('latencyChart', latencyType, latencyType === 'radar' ? times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0) : times, latencyType === 'radar' ? apis.map((api, ai) => {
+                const sampledTimes = times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0);
+                const color = getApiColor(api);
+                return { label: api.toUpperCase(), data: sampledTimes.map(t => { const slot = timeline[t][api]; return slot ? (slot.sum / slot.count).toFixed(1) : 0; }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
+            }) : latencyDatasets, 'Latency [지연 시간] (ms)');
+
+            // TPS Chart — http_reqs(REST/GQL) + duration건수(gRPC) 하이브리드
+            const tpsType = chartTypeState.tpsChart;
+            const tpsTimeAxis = hasTpsData ? tpsTimes : times;
+            const tpsDatasets = apis.map(api => {
+                const color = getApiColor(api);
+                const values = tpsTimeAxis.map(t => {
+                    if (hasTpsData) {
+                        return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
+                    }
+                    // 완전 fallback: duration 건수
+                    const slot = timeline[t] && timeline[t][api];
+                    return slot ? slot.count : 0;
+                });
+                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (tpsType === 'line' ? '10' : '80'), borderWidth: 2 };
+                if (tpsType === 'line') Object.assign(base, { tension: 0.4, pointRadius: 0 });
+                if (tpsType === 'bar') Object.assign(base, { borderRadius: 4 });
+                if (tpsType === 'radar') Object.assign(base, { backgroundColor: color + '25', pointRadius: 2, fill: true });
+                return base;
+            });
+            updateChart('tpsChart', tpsType, tpsType === 'radar' ? tpsTimeAxis.filter((_, i) => i % Math.max(1, Math.floor(tpsTimeAxis.length / 12)) === 0) : tpsTimeAxis, tpsType === 'radar' ? apis.map(api => {
+                const sampledTimes = tpsTimeAxis.filter((_, i) => i % Math.max(1, Math.floor(tpsTimeAxis.length / 12)) === 0);
+                const color = getApiColor(api);
+                return { label: api.toUpperCase(), data: sampledTimes.map(t => {
+                    if (hasTpsData) return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
+                    const slot = timeline[t] && timeline[t][api];
+                    return slot ? slot.count : 0;
+                }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
+            }) : tpsDatasets, 'Throughput [초당 처리량] (TPS)');
+
+            // p99.9 Chart
+            const p99Type = chartTypeState.p99Chart;
+            const p99Labels = apis.map(a => a.toUpperCase());
+            const p99Values = apis.map(api => apiP999[api]);
+            const p99Colors = apis.map(a => getApiColor(a));
+
+            if (p99Type === 'doughnut' || p99Type === 'polarArea') {
+                updateChart('p99Chart', p99Type, p99Labels, [{
+                    label: 'p99.9 Tail Latency (ms)',
+                    data: p99Values,
+                    backgroundColor: p99Colors.map(c => c + '80'),
+                    borderColor: p99Colors,
+                    borderWidth: 2
+                }], 'ms');
+            } else if (p99Type === 'radar') {
+                updateChart('p99Chart', 'radar', p99Labels, [{
+                    label: 'p99.9 Tail Latency (ms)',
+                    data: p99Values,
+                    backgroundColor: 'rgba(59,130,246,0.15)',
+                    borderColor: '#3b82f6',
+                    borderWidth: 2,
+                    pointRadius: 4,
+                    pointBackgroundColor: p99Colors,
+                    fill: true
+                }], 'ms');
+            } else {
+                updateChart('p99Chart', 'bar', p99Labels, [{
+                    label: 'p99.9 Tail Latency (ms)',
+                    data: p99Values,
+                    backgroundColor: p99Colors.map(c => c + '80'),
+                    borderColor: p99Colors,
+                    borderWidth: 2,
+                    borderRadius: 8
+                }], 'ms');
+            }
         }
 
         function updateChart(id, type, labels, datasets, yLabel) {
@@ -620,32 +1079,53 @@
             const textColor = isDark ? '#e2e8f0' : '#0f172a';
             const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
 
-            charts[id] = new Chart(document.getElementById(id).getContext('2d'), {
-                type, data: { labels, datasets },
-                options: {
-                    responsive: true, maintainAspectRatio: false,
-                    animation: { duration: 300 }, interaction: { mode: 'index', intersect: false },
-                    scales: {
-                        y: {
-                            beginAtZero: true, grid: { color: gridColor, lineWidth: 1 },
-                            title: { display: true, text: yLabel, color: textColor, font: { size: 12, weight: '700' } },
-                            ticks: { color: textColor, font: { size: 11, weight: '600' } }
-                        },
-                        x: {
-                            grid: { display: false },
-                            ticks: { color: textColor, font: { size: 11, weight: '600' }, autoSkip: true, maxTicksLimit: 12 }
-                        }
-                    },
-                    plugins: {
-                        legend: { position: 'top', labels: { color: textColor, font: { size: 11, weight: '700' }, usePointStyle: true, boxWidth: 10, padding: 15 } },
-                        tooltip: {
-                            backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                            titleFont: { size: 12, weight: 'bold' }, bodyFont: { size: 11 },
-                            titleColor: isDark ? '#ffffff' : '#0f172a', bodyColor: isDark ? '#e2e8f0' : '#0f172a',
-                            borderColor: '#3b82f6', borderWidth: 1, padding: 10
-                        }
+            const isRadial = (type === 'radar' || type === 'polarArea' || type === 'doughnut');
+
+            const options = {
+                responsive: true, maintainAspectRatio: false,
+                animation: { duration: 300 },
+                interaction: { mode: isRadial ? 'nearest' : 'index', intersect: isRadial },
+                plugins: {
+                    legend: { position: 'top', labels: { color: textColor, font: { size: 11, weight: '700' }, usePointStyle: true, boxWidth: 10, padding: 15 } },
+                    tooltip: {
+                        backgroundColor: isDark ? '#1e293b' : '#ffffff',
+                        titleFont: { size: 12, weight: 'bold' }, bodyFont: { size: 11 },
+                        titleColor: isDark ? '#ffffff' : '#0f172a', bodyColor: isDark ? '#e2e8f0' : '#0f172a',
+                        borderColor: '#3b82f6', borderWidth: 1, padding: 10
                     }
                 }
+            };
+
+            if (isRadial) {
+                // radial 차트는 x/y 축 없음, 대신 r 축 (radar) 또는 없음 (doughnut/polar)
+                if (type === 'radar') {
+                    options.scales = {
+                        r: {
+                            beginAtZero: true,
+                            grid: { color: gridColor },
+                            angleLines: { color: gridColor },
+                            pointLabels: { color: textColor, font: { size: 10, weight: '600' } },
+                            ticks: { color: textColor, backdropColor: 'transparent', font: { size: 9 } }
+                        }
+                    };
+                }
+                // doughnut/polarArea는 scales 불필요
+            } else {
+                options.scales = {
+                    y: {
+                        beginAtZero: true, grid: { color: gridColor, lineWidth: 1 },
+                        title: { display: true, text: yLabel, color: textColor, font: { size: 12, weight: '700' } },
+                        ticks: { color: textColor, font: { size: 11, weight: '600' } }
+                    },
+                    x: {
+                        grid: { display: false },
+                        ticks: { color: textColor, font: { size: 11, weight: '600' }, autoSkip: true, maxTicksLimit: 12 }
+                    }
+                };
+            }
+
+            charts[id] = new Chart(document.getElementById(id).getContext('2d'), {
+                type, data: { labels, datasets }, options
             });
         }
 
@@ -669,6 +1149,166 @@
             link.href = URL.createObjectURL(blob);
             link.setAttribute("download", `gigant_report_${new Date().getTime()}.csv`);
             link.click();
+        }
+
+        /* ── Chart Export Functions ── */
+        const chartMetricNames = {
+            latencyChart: 'Latency',
+            tpsChart: 'TPS',
+            p99Chart: 'p99.9_Tail_Latency'
+        };
+
+        function buildExportFileName(chartId, ext) {
+            // TC 부분: 선택된 TC 목록
+            const tcs = Array.from(activeFilters.tc).sort();
+            let tcPart;
+            if (tcs.length === 1) {
+                tcPart = tcs[0].toUpperCase();
+            } else if (tcs.length <= 3) {
+                tcPart = tcs.map(t => t.toUpperCase().replace('TC','')).join('-');
+            } else {
+                tcPart = `${tcs.length}TCs`;
+            }
+
+            // VUs 수
+            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
+
+            // 그래프 타입
+            const chartType = chartTypeState[chartId] || 'chart';
+            const typePart = chartType.charAt(0).toUpperCase() + chartType.slice(1);
+
+            // 메트릭 이름
+            const metricPart = chartMetricNames[chartId] || chartId;
+
+            return `${tcPart}_${vusPart}_${typePart}_${metricPart}.${ext}`;
+        }
+
+        function showToast(msg) {
+            let toast = document.getElementById('export-toast');
+            if (!toast) {
+                toast = document.createElement('div');
+                toast.id = 'export-toast';
+                toast.className = 'export-toast';
+                document.body.appendChild(toast);
+            }
+            toast.textContent = msg;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 2200);
+        }
+
+        function toggleExportMenu(e, chartId) {
+            e.stopPropagation();
+            document.querySelectorAll('.chart-export-dropdown').forEach(d => {
+                if (d.id !== 'dropdown-' + chartId) d.classList.remove('show');
+            });
+            const dd = document.getElementById('dropdown-' + chartId);
+            dd.classList.toggle('show');
+        }
+
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.chart-export-dropdown').forEach(d => d.classList.remove('show'));
+        });
+
+        function renderChartToDataURL(chartId, format) {
+            const chart = charts[chartId];
+            if (!chart) return null;
+
+            const scale = 3;
+            const srcCanvas = chart.canvas;
+            const w = srcCanvas.width;
+            const h = srcCanvas.height;
+
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = w * scale;
+            exportCanvas.height = h * scale;
+            const ctx = exportCanvas.getContext('2d');
+
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
+            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+
+            ctx.scale(scale, scale);
+            ctx.drawImage(srcCanvas, 0, 0, w, h);
+
+            // Watermark
+            ctx.globalAlpha = 0.12;
+            ctx.font = `bold ${12}px Pretendard, sans-serif`;
+            ctx.fillStyle = isDark ? '#ffffff' : '#000000';
+            ctx.textAlign = 'right';
+            ctx.fillText('API Benchmark Analyzer — Gigant Vision', w - 10, h - 8);
+            ctx.globalAlpha = 1;
+
+            let mimeType;
+            switch (format) {
+                case 'jpg': mimeType = 'image/jpeg'; break;
+                case 'webp': mimeType = 'image/webp'; break;
+                default: mimeType = 'image/png';
+            }
+            const quality = format === 'png' ? undefined : 0.95;
+            return exportCanvas.toDataURL(mimeType, quality);
+        }
+
+        function exportChart(chartId, format) {
+            document.querySelectorAll('.chart-export-dropdown').forEach(d => d.classList.remove('show'));
+            if (!charts[chartId]) { showToast('⚠️ 차트 데이터가 없습니다'); return; }
+
+            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
+            const dataURL = renderChartToDataURL(chartId, format);
+            if (!dataURL) return;
+
+            const fileName = buildExportFileName(chartId, ext);
+            const link = document.createElement('a');
+            link.download = fileName;
+            link.href = dataURL;
+            link.click();
+
+            showToast(`✅ ${chartMetricNames[chartId]} 차트 저장 완료`);
+        }
+
+        async function exportAllCharts() {
+            const format = document.getElementById('export-all-format').value;
+            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart'];
+            const validIds = ids.filter(id => charts[id]);
+
+            if (validIds.length === 0) {
+                showToast('⚠️ 내보낼 차트가 없습니다');
+                return;
+            }
+
+            showToast('📦 차트 압축 중...');
+
+            const zip = new JSZip();
+            validIds.forEach(id => {
+                const dataURL = renderChartToDataURL(id, format);
+                if (dataURL) {
+                    const base64 = dataURL.split(',')[1];
+                    const fileName = buildExportFileName(id, ext);
+                    zip.file(fileName, base64, { base64: true });
+                }
+            });
+
+            // ZIP 파일명
+            const tcs = Array.from(activeFilters.tc).sort();
+            let tcPart;
+            if (tcs.length === 1) {
+                tcPart = tcs[0].toUpperCase();
+            } else if (tcs.length <= 3) {
+                tcPart = tcs.map(t => t.toUpperCase().replace('TC','')).join('-');
+            } else {
+                tcPart = `${tcs.length}TCs`;
+            }
+            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
+            const zipName = `${tcPart}_${vusPart}_Charts.zip`;
+
+            const blob = await zip.generateAsync({ type: 'blob' });
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = zipName;
+            link.click();
+            URL.revokeObjectURL(link.href);
+
+            showToast(`📦 ${validIds.length}개 차트 ZIP 저장 완료!`);
         }
     </script>
 </body>

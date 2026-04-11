@@ -75,7 +75,7 @@ export_csv() {
     echo "============================================================"
 
     # 뽑아낼 핵심 지표들
-    local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "vus")
+    local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "grpc_reqs" "vus")
     
     for metric in "${metrics[@]}"; do
         echo "  - [${metric}] 데이터 추출 중..."
