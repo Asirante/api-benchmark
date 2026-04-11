@@ -46,7 +46,6 @@
             font-size: 0.875rem;
         }
 
-        /* 테마 변수 기반 유틸리티 클래스 (Tailwind 하드코딩 색상 대체) */
         .t-text-main { color: var(--text-main); }
         .t-text-dim { color: var(--text-dim); }
         .t-text-muted { color: var(--text-muted); }
@@ -54,7 +53,6 @@
         .t-border-strong { border-color: var(--border-strong); }
         .t-bg-soft { background-color: var(--bg-card-soft); }
 
-        /* 카드 - 패딩 축소 */
         .card {
             background-color: var(--bg-card);
             border: 1px solid var(--border);
@@ -64,7 +62,6 @@
             transition: background-color 0.2s ease, border-color 0.2s ease;
         }
 
-        /* 테이블 - 가독성 유지하되 컴팩트하게 */
         table { width: 100%; border-collapse: separate; border-spacing: 0; }
         th {
             background-color: var(--bg-card-soft);
@@ -91,7 +88,6 @@
         }
         tr:hover td { background-color: var(--table-hover); }
 
-        /* 필터 칩 */
         .filter-chip {
             padding: 0.5rem 0.875rem;
             border-radius: 8px;
@@ -251,6 +247,7 @@
             min-width: 36px;
             text-align: center;
         }
+        
         .export-all-bar {
             display: flex;
             align-items: center;
@@ -276,6 +273,11 @@
             box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
         }
         .export-all-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
+        .export-all-btn.multi {
+            background: linear-gradient(135deg, #10b981, #059669);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
         .export-toast {
             position: fixed;
             bottom: 2rem;
@@ -351,7 +353,7 @@
     <div id="loading-overlay" class="fixed inset-0 z-[100] flex items-center justify-center">
         <div class="text-center">
             <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mx-auto mb-5"></div>
-            <p class="text-white text-lg font-bold tracking-[0.15em]">ANALYZING DATA...</p>
+            <p id="loading-text" class="text-white text-lg font-bold tracking-[0.15em]">ANALYZING DATA...</p>
         </div>
     </div>
 
@@ -451,8 +453,11 @@
                                 <option value="jpg">JPG</option>
                                 <option value="webp">WEBP</option>
                             </select>
+                            <button class="export-all-btn multi" onclick="exportAllTCCharts()">
+                                📂 모든 TC 개별 압축
+                            </button>
                             <button class="export-all-btn" onclick="exportAllCharts()">
-                                📦 모두 내보내기
+                                📦 현재 뷰 내보내기
                             </button>
                         </div>
                         <!-- Latency Chart -->
@@ -542,8 +547,20 @@
         let tcApiMap = {};
         let charts = {};
         let sessionMeta = { vus: 0, files: 0, rows: 0 };
+        let chartAnimationEnabled = true; // 차트 내보내기 시 애니메이션 제어용
 
         const overlay = document.getElementById('loading-overlay');
+
+        function showLoading(text) {
+            const p = document.getElementById('loading-text');
+            if (text) p.textContent = text;
+            overlay.style.display = 'flex';
+        }
+
+        function hideLoading() {
+            overlay.style.display = 'none';
+            document.getElementById('loading-text').textContent = 'ANALYZING DATA...';
+        }
 
         function toggleTheme() {
             const body = document.body;
@@ -567,7 +584,7 @@
 
         async function handleFiles(files) {
             if (files.length === 0) return;
-            overlay.style.display = 'flex';
+            showLoading('ANALYZING CSV...');
 
             setTimeout(async () => {
                 const loaders = Array.from(files).map(file => {
@@ -582,7 +599,7 @@
                 const results = await Promise.all(loaders);
                 sessionMeta.files += files.length;
                 processBenchmarkData(results);
-                overlay.style.display = 'none';
+                hideLoading();
             }, 50);
         }
 
@@ -612,7 +629,6 @@
                     const api = row.api || row.name;
                     const tc = row.tc || 'etc';
 
-                    // VUs 처리
                     if (isVus || row.metric === 'vus' || api === 'vus') {
                         if (val > sessionMeta.vus) sessionMeta.vus = Math.round(val);
                         return;
@@ -631,14 +647,12 @@
                     };
 
                     if (isDuration) {
-                        // duration 데이터 → 테이블, Latency 차트, p99.9 차트용
                         fullData.push(dataRow);
                         filters.tc.add(dataRow.tc);
                         filters.api.add(dataRow.api);
                         if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
                         tcApiMap[dataRow.tc].add(dataRow.api);
                     } else if (isReqs) {
-                        // reqs 카운터 데이터 → TPS 차트 전용
                         reqsData.push(dataRow);
                     }
                 });
@@ -671,47 +685,28 @@
             updateAll();
         }
 
-        // TC 한글 라벨 매핑
         const tcLabels = {
-            'tc1': '단순 조회',
-            'tc2': '대용량 페이징',
-            'tc3': '언더페칭 (N+1)',
-            'tc4': '부분 필드 추출',
-            'tc5': '극한 조인',
-            'tc6': '트랜잭션 쓰기',
-            'tc7': '예외 처리',
-            'tc8_spike': '스파이크 부하',
-            'tc9_simple': '프록시 단순조회',
-            'tc9_heavy': '프록시 대용량',
-            'tc9_error': '프록시 에러',
+            'tc1': '단순 조회', 'tc2': '대용량 페이징', 'tc3': '언더페칭 (N+1)',
+            'tc4': '부분 필드 추출', 'tc5': '극한 조인', 'tc6': '트랜잭션 쓰기',
+            'tc7': '예외 처리', 'tc8_spike': '스파이크 부하', 'tc9_simple': '프록시 단순조회',
+            'tc9_heavy': '프록시 대용량', 'tc9_error': '프록시 에러',
         };
 
-        // API 한글 라벨 매핑
         const apiLabels = {
-            'rest': 'REST API',
-            'graphql': 'GraphQL',
-            'grpc': 'gRPC Direct',
-            'grpc_direct': 'gRPC Direct',
-            'grpc_envoy': 'gRPC Envoy',
-            'rest_part1': 'REST 1차호출',
-            'rest_part2': 'REST 2차호출',
-            'grpc_part1': 'gRPC 1차호출',
-            'grpc_part2': 'gRPC 2차호출',
-            'rest_error': 'REST 에러',
-            'graphql_error': 'GQL 에러',
-            'grpc_error': 'gRPC 에러',
+            'rest': 'REST API', 'graphql': 'GraphQL', 'grpc': 'gRPC Direct',
+            'grpc_direct': 'gRPC Direct', 'grpc_envoy': 'gRPC Envoy',
+            'rest_part1': 'REST 1차호출', 'rest_part2': 'REST 2차호출',
+            'grpc_part1': 'gRPC 1차호출', 'grpc_part2': 'gRPC 2차호출',
+            'rest_error': 'REST 에러', 'graphql_error': 'GQL 에러', 'grpc_error': 'gRPC 에러',
         };
 
         function getTcLabel(val) {
             if (tcLabels[val]) return tcLabels[val];
-            // tc8, tc9 등 부분 매칭 시도
             const key = Object.keys(tcLabels).find(k => val.startsWith(k));
             return key ? tcLabels[key] : '';
         }
 
-        function getApiLabel(val) {
-            return apiLabels[val] || '';
-        }
+        function getApiLabel(val) { return apiLabels[val] || ''; }
 
         function renderFilterUI() {
             const tcContainer = document.getElementById('filter-tc');
@@ -778,12 +773,10 @@
             renderSummary(filtered.length);
             const grouped = groupData(filtered);
             renderTable(grouped);
-            // 캐시된 전처리 데이터를 저장해서 차트 타입 변경 시 재필터링 방지
             cachedChartData = preprocessChartData(filtered);
             renderCharts(cachedChartData);
         }
 
-        // 전처리 결과 캐시 (차트 타입만 바꿀 때 재계산 불필요)
         let cachedChartData = null;
 
         function groupData(data) {
@@ -799,19 +792,14 @@
                 const vals = g.vals;
                 const n = vals.length;
                 const avg = g.sum / n;
-                // 부분 정렬: nth_element 대신 full sort (JS에선 이게 최선)
-                // 하지만 정렬은 한 번만 하고 모든 백분위를 한꺼번에 추출
                 vals.sort((a, b) => a - b);
                 const getP = (p) => vals[Math.floor((n - 1) * p)];
-                // 분산 계산: sum of squares 방식 (2-pass → 1-pass)
                 let sqSum = 0;
                 for (let i = 0; i < n; i++) sqSum += (vals[i] - avg) ** 2;
                 return {
                     tc, api, count: n,
-                    avg: avg.toFixed(2),
-                    p95: getP(0.95).toFixed(2),
-                    p99: getP(0.99).toFixed(2),
-                    p999: getP(0.999).toFixed(2),
+                    avg: avg.toFixed(2), p95: getP(0.95).toFixed(2),
+                    p99: getP(0.99).toFixed(2), p999: getP(0.999).toFixed(2),
                     stdDev: Math.sqrt(sqSum / n).toFixed(2)
                 };
             });
@@ -867,7 +855,6 @@
             `).join('');
         }
 
-        // 차트 데이터 전처리 (필터링된 데이터 → 시계열/집계 1회만 수행)
         function preprocessChartData(data) {
             const timeline = {};
             const apiTotals = {};
@@ -876,13 +863,11 @@
                 const d = data[i];
                 const t = d.time;
                 const a = d.api;
-                // timeline 집계 (Latency용)
                 if (!timeline[t]) timeline[t] = {};
                 const slot = timeline[t];
                 if (!slot[a]) slot[a] = { sum: 0, count: 0 };
                 slot[a].sum += d.value;
                 slot[a].count++;
-                // api 전체 집계 (p99.9용)
                 if (!apiTotals[a]) apiTotals[a] = [];
                 apiTotals[a].push(d.value);
             }
@@ -890,13 +875,9 @@
             const times = Object.keys(timeline).sort();
             const apis = Object.keys(apiTotals).sort();
 
-            // TPS용: 하이브리드 방식
-            // - REST/GraphQL → http_reqs (reqsData)에서 카운트 (정확한 요청 카운터)
-            // - gRPC → grpc_req_duration (fullData/timeline)에서 건수 카운트 (grpc_reqs 빌트인 없음)
             const tpsTimeline = {};
             const tpsApiSet = new Set();
 
-            // 1) http_reqs 데이터에서 REST/GraphQL TPS 집계
             const filteredReqs = reqsData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
             for (let i = 0; i < filteredReqs.length; i++) {
                 const d = filteredReqs[i];
@@ -906,7 +887,6 @@
                 tpsApiSet.add(d.api);
             }
 
-            // 2) gRPC 계열은 http_reqs에 없으므로, duration 데이터의 건수로 TPS 보충
             const grpcApis = apis.filter(a => !tpsApiSet.has(a));
             if (grpcApis.length > 0) {
                 for (const t of times) {
@@ -920,11 +900,9 @@
                 }
             }
 
-            // 3) reqsData도 없고 gRPC도 아닌 경우 전체 fallback
             const hasTpsData = Object.keys(tpsTimeline).length > 0;
             const tpsTimes = hasTpsData ? Object.keys(tpsTimeline).sort() : times;
 
-            // p99.9 계산을 위한 정렬은 여기서 1회만
             const apiP999 = {};
             apis.forEach(api => {
                 const sorted = apiTotals[api].sort((a, b) => a - b);
@@ -933,32 +911,13 @@
             return { timeline, tpsTimeline, apiTotals, apiP999, times, tpsTimes, apis, hasTpsData };
         }
 
-        /* ── 차트 타입 추천 & 관리 ── */
-        // 각 차트별 사용 가능한 타입과 추천 타입
         const chartTypeConfig = {
-            latencyChart: {
-                types: ['line', 'bar', 'radar'],
-                labels: { line: 'Line', bar: 'Bar', radar: 'Radar' },
-                recommended: 'line'  // 시계열 데이터는 line이 최적
-            },
-            tpsChart: {
-                types: ['line', 'bar', 'radar'],
-                labels: { line: 'Line', bar: 'Bar', radar: 'Radar' },
-                recommended: 'line'  // 연속 처리량도 line 최적
-            },
-            p99Chart: {
-                types: ['bar', 'polarArea', 'doughnut', 'radar'],
-                labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' },
-                recommended: 'bar'   // API간 비교는 bar 최적
-            }
+            latencyChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
+            tpsChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
+            p99Chart: { types: ['bar', 'polarArea', 'doughnut', 'radar'], labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' }, recommended: 'bar' }
         };
 
-        // 현재 선택된 차트 타입 상태
-        const chartTypeState = {
-            latencyChart: 'line',
-            tpsChart: 'line',
-            p99Chart: 'bar'
-        };
+        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar' };
 
         function renderChartTypeSelectors() {
             Object.keys(chartTypeConfig).forEach(chartId => {
@@ -985,9 +944,9 @@
                 charts = {};
                 return;
             }
-            const { timeline, tpsTimeline, apiTotals, apiP999, times, tpsTimes, apis, hasTpsData } = cd;
+            const { timeline, tpsTimeline, apiP999, times, tpsTimes, apis, hasTpsData } = cd;
 
-            // Latency Chart
+            // Latency
             const latencyType = chartTypeState.latencyChart;
             const latencyDatasets = apis.map(api => {
                 const color = getApiColor(api);
@@ -1001,22 +960,19 @@
                 if (latencyType === 'radar') Object.assign(base, { backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true });
                 return base;
             });
-            updateChart('latencyChart', latencyType, latencyType === 'radar' ? times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0) : times, latencyType === 'radar' ? apis.map((api, ai) => {
+            updateChart('latencyChart', latencyType, latencyType === 'radar' ? times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0) : times, latencyType === 'radar' ? apis.map(api => {
                 const sampledTimes = times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0);
                 const color = getApiColor(api);
                 return { label: api.toUpperCase(), data: sampledTimes.map(t => { const slot = timeline[t][api]; return slot ? (slot.sum / slot.count).toFixed(1) : 0; }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
             }) : latencyDatasets, 'Latency [지연 시간] (ms)');
 
-            // TPS Chart — http_reqs(REST/GQL) + duration건수(gRPC) 하이브리드
+            // TPS
             const tpsType = chartTypeState.tpsChart;
             const tpsTimeAxis = hasTpsData ? tpsTimes : times;
             const tpsDatasets = apis.map(api => {
                 const color = getApiColor(api);
                 const values = tpsTimeAxis.map(t => {
-                    if (hasTpsData) {
-                        return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
-                    }
-                    // 완전 fallback: duration 건수
+                    if (hasTpsData) return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
                     const slot = timeline[t] && timeline[t][api];
                     return slot ? slot.count : 0;
                 });
@@ -1036,7 +992,7 @@
                 }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
             }) : tpsDatasets, 'Throughput [초당 처리량] (TPS)');
 
-            // p99.9 Chart
+            // p99.9
             const p99Type = chartTypeState.p99Chart;
             const p99Labels = apis.map(a => a.toUpperCase());
             const p99Values = apis.map(api => apiP999[api]);
@@ -1044,31 +1000,20 @@
 
             if (p99Type === 'doughnut' || p99Type === 'polarArea') {
                 updateChart('p99Chart', p99Type, p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)',
-                    data: p99Values,
-                    backgroundColor: p99Colors.map(c => c + '80'),
-                    borderColor: p99Colors,
-                    borderWidth: 2
+                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
+                    backgroundColor: p99Colors.map(c => c + '80'), borderColor: p99Colors, borderWidth: 2
                 }], 'ms');
             } else if (p99Type === 'radar') {
                 updateChart('p99Chart', 'radar', p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)',
-                    data: p99Values,
-                    backgroundColor: 'rgba(59,130,246,0.15)',
-                    borderColor: '#3b82f6',
-                    borderWidth: 2,
-                    pointRadius: 4,
-                    pointBackgroundColor: p99Colors,
-                    fill: true
+                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
+                    backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3b82f6', borderWidth: 2,
+                    pointRadius: 4, pointBackgroundColor: p99Colors, fill: true
                 }], 'ms');
             } else {
                 updateChart('p99Chart', 'bar', p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)',
-                    data: p99Values,
-                    backgroundColor: p99Colors.map(c => c + '80'),
-                    borderColor: p99Colors,
-                    borderWidth: 2,
-                    borderRadius: 8
+                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
+                    backgroundColor: p99Colors.map(c => c + '80'), borderColor: p99Colors,
+                    borderWidth: 2, borderRadius: 8
                 }], 'ms');
             }
         }
@@ -1083,7 +1028,7 @@
 
             const options = {
                 responsive: true, maintainAspectRatio: false,
-                animation: { duration: 300 },
+                animation: chartAnimationEnabled ? { duration: 300 } : false,
                 interaction: { mode: isRadial ? 'nearest' : 'index', intersect: isRadial },
                 plugins: {
                     legend: { position: 'top', labels: { color: textColor, font: { size: 11, weight: '700' }, usePointStyle: true, boxWidth: 10, padding: 15 } },
@@ -1097,19 +1042,15 @@
             };
 
             if (isRadial) {
-                // radial 차트는 x/y 축 없음, 대신 r 축 (radar) 또는 없음 (doughnut/polar)
                 if (type === 'radar') {
                     options.scales = {
                         r: {
-                            beginAtZero: true,
-                            grid: { color: gridColor },
-                            angleLines: { color: gridColor },
+                            beginAtZero: true, grid: { color: gridColor }, angleLines: { color: gridColor },
                             pointLabels: { color: textColor, font: { size: 10, weight: '600' } },
                             ticks: { color: textColor, backdropColor: 'transparent', font: { size: 9 } }
                         }
                     };
                 }
-                // doughnut/polarArea는 scales 불필요
             } else {
                 options.scales = {
                     y: {
@@ -1159,7 +1100,6 @@
         };
 
         function buildExportFileName(chartId, ext) {
-            // TC 부분: 선택된 TC 목록
             const tcs = Array.from(activeFilters.tc).sort();
             let tcPart;
             if (tcs.length === 1) {
@@ -1170,20 +1110,16 @@
                 tcPart = `${tcs.length}TCs`;
             }
 
-            // VUs 수
             const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
-
-            // 그래프 타입
             const chartType = chartTypeState[chartId] || 'chart';
             const typePart = chartType.charAt(0).toUpperCase() + chartType.slice(1);
-
-            // 메트릭 이름
             const metricPart = chartMetricNames[chartId] || chartId;
 
             return `${tcPart}_${vusPart}_${typePart}_${metricPart}.${ext}`;
         }
 
-        function showToast(msg) {
+        let toastTimeout;
+        function showToast(msg, duration = 2200) {
             let toast = document.getElementById('export-toast');
             if (!toast) {
                 toast = document.createElement('div');
@@ -1193,7 +1129,8 @@
             }
             toast.textContent = msg;
             toast.classList.add('show');
-            setTimeout(() => toast.classList.remove('show'), 2200);
+            if (toastTimeout) clearTimeout(toastTimeout);
+            toastTimeout = setTimeout(() => toast.classList.remove('show'), duration);
         }
 
         function toggleExportMenu(e, chartId) {
@@ -1257,6 +1194,7 @@
             showToast(`✅ ${chartMetricNames[chartId]} 차트 저장 완료`);
         }
 
+        // 현재 선택된 뷰의 묶음 데이터만 다운로드 (기존 기능)
         async function exportAllCharts() {
             const format = document.getElementById('export-all-format').value;
             const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
@@ -1268,7 +1206,7 @@
                 return;
             }
 
-            showToast('📦 차트 압축 중...');
+            showLoading('ZIPPING CURRENT VIEW...');
 
             const zip = new JSZip();
             validIds.forEach(id => {
@@ -1280,16 +1218,8 @@
                 }
             });
 
-            // ZIP 파일명
             const tcs = Array.from(activeFilters.tc).sort();
-            let tcPart;
-            if (tcs.length === 1) {
-                tcPart = tcs[0].toUpperCase();
-            } else if (tcs.length <= 3) {
-                tcPart = tcs.map(t => t.toUpperCase().replace('TC','')).join('-');
-            } else {
-                tcPart = `${tcs.length}TCs`;
-            }
+            let tcPart = (tcs.length === 1) ? tcs[0].toUpperCase() : (tcs.length <= 3) ? tcs.map(t => t.toUpperCase().replace('TC','')).join('-') : `${tcs.length}TCs`;
             const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
             const zipName = `${tcPart}_${vusPart}_Charts.zip`;
 
@@ -1300,7 +1230,80 @@
             link.click();
             URL.revokeObjectURL(link.href);
 
-            showToast(`📦 ${validIds.length}개 차트 ZIP 저장 완료!`);
+            hideLoading();
+            showToast(`📦 현재 선택된 ${validIds.length}개 차트 ZIP 저장 완료!`);
+        }
+
+        // 개별 TC들을 순회하며 폴더 구조로 묶어서 다운로드 (추가 기능)
+        async function exportAllTCCharts() {
+            const format = document.getElementById('export-all-format').value;
+            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart'];
+
+            if (filters.tc.size === 0) {
+                showToast('⚠️ 내보낼 데이터가 없습니다');
+                return;
+            }
+
+            const targetTCs = Array.from(filters.tc).sort();
+            showLoading('RENDERING CHARTS...');
+
+            const backupTc = new Set(activeFilters.tc);
+            const backupApi = new Set(activeFilters.api);
+            chartAnimationEnabled = false; // 캡처 시 오작동 방지를 위해 애니메이션 비활성화
+
+            const zip = new JSZip();
+            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
+
+            for (const tc of targetTCs) {
+                activeFilters.tc.clear();
+                activeFilters.tc.add(tc);
+                activeFilters.api.clear();
+                if (tcApiMap[tc]) {
+                    tcApiMap[tc].forEach(a => activeFilters.api.add(a));
+                }
+
+                updateAll();
+                
+                // 차트가 캔버스에 완전히 렌더링될 수 있도록 잠시 대기
+                await new Promise(r => setTimeout(r, 200));
+
+                const tcNameUpper = tc.toUpperCase();
+                const folderName = `${tcNameUpper}_${vusPart}_Charts`;
+                const folder = zip.folder(folderName);
+
+                ids.forEach(id => {
+                    if (charts[id]) {
+                        const dataURL = renderChartToDataURL(id, format);
+                        if (dataURL) {
+                            const base64 = dataURL.split(',')[1];
+                            const fileName = buildExportFileName(id, ext);
+                            folder.file(fileName, base64, { base64: true });
+                        }
+                    }
+                });
+            }
+
+            // 상태 원상 복구
+            activeFilters.tc = backupTc;
+            activeFilters.api = backupApi;
+            chartAnimationEnabled = true;
+            updateAll();
+
+            showLoading('ZIPPING FILES...');
+            
+            // 최상단 ZIP 파일명 설정
+            const zipName = sessionMeta.vus ? `VUs ${sessionMeta.vus}.zip` : 'All_TC_Charts.zip';
+            const blob = await zip.generateAsync({ type: 'blob' });
+            
+            const link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = zipName;
+            link.click();
+            URL.revokeObjectURL(link.href);
+
+            hideLoading();
+            showToast(`✅ 모든 TC(${targetTCs.length}개) 폴더 압축 완료!`);
         }
     </script>
 </body>
