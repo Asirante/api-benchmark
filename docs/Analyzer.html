@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Benchmark Analyzer - Gigant Vision v1.9</title>
+    <title>API Benchmark Analyzer</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
@@ -1229,14 +1229,6 @@
 
             ctx.scale(scale, scale);
             ctx.drawImage(srcCanvas, 0, 0, w, h);
-
-            // Watermark
-            ctx.globalAlpha = 0.12;
-            ctx.font = `bold ${12}px Pretendard, sans-serif`;
-            ctx.fillStyle = isDark ? '#ffffff' : '#000000';
-            ctx.textAlign = 'right';
-            ctx.fillText('API Benchmark Analyzer — Gigant Vision', w - 10, h - 8);
-            ctx.globalAlpha = 1;
 
             let mimeType;
             switch (format) {
