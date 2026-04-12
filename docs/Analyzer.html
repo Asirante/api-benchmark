@@ -532,6 +532,32 @@
                             <div style="height:0.75rem"></div>
                             <div class="h-[300px]"><canvas id="p99Chart"></canvas></div>
                         </div>
+                        <!-- Error Rate Chart -->
+                        <div class="card" id="error-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+                                    🚨 [안정성] 에러율 분석 (Error Rate %)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-errorChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'errorChart')">
+                                            💾 내보내기 ▾
+                                        </button>
+                                        <div class="chart-export-dropdown" id="dropdown-errorChart">
+                                            <div class="export-option" onclick="exportChart('errorChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('errorChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('errorChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div style="height:0.75rem"></div>
+                            <!-- Error Summary Table -->
+                            <div id="error-summary" style="margin-bottom:1rem;"></div>
+                            <div class="h-[300px]"><canvas id="errorChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -541,6 +567,7 @@
     <script>
         let fullData = [];
         let reqsData = [];  // TPS 차트 전용 (http_reqs, grpc_reqs)
+        let errorData = []; // 에러율 분석용 (checks, http_req_failed)
         let currentSort = { key: 'p999', asc: true };
         let filters = { tc: new Set(), api: new Set() };
         let activeFilters = { tc: new Set(), api: new Set() };
@@ -623,6 +650,7 @@
                 const isDuration = fname.includes('duration');
                 const isReqs = fname.includes('_reqs') && !fname.includes('duration');
                 const isVus = fname.includes('vus');
+                const isError = fname.includes('checks') || fname.includes('failed');
 
                 file.data.forEach(row => {
                     const val = row.value || row.avg || row.mean;
@@ -654,6 +682,17 @@
                         tcApiMap[dataRow.tc].add(dataRow.api);
                     } else if (isReqs) {
                         reqsData.push(dataRow);
+                    } else if (isError) {
+                        // checks: value=1이면 성공, value=0이면 실패
+                        // http_req_failed: value=1이면 실패, value=0이면 성공
+                        const isChecks = fname.includes('checks');
+                        const failed = isChecks ? (dataRow.value === 0) : (dataRow.value === 1);
+                        errorData.push({
+                            tc: dataRow.tc,
+                            api: dataRow.api,
+                            time: dataRow.time,
+                            failed: failed ? 1 : 0
+                        });
                     }
                 });
             });
@@ -914,10 +953,11 @@
         const chartTypeConfig = {
             latencyChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
             tpsChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
-            p99Chart: { types: ['bar', 'polarArea', 'doughnut', 'radar'], labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' }, recommended: 'bar' }
+            p99Chart: { types: ['bar', 'polarArea', 'doughnut', 'radar'], labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' }, recommended: 'bar' },
+            errorChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' }
         };
 
-        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar' };
+        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar', errorChart: 'line' };
 
         function renderChartTypeSelectors() {
             Object.keys(chartTypeConfig).forEach(chartId => {
@@ -1016,6 +1056,100 @@
                     borderWidth: 2, borderRadius: 8
                 }], 'ms');
             }
+
+            // Error Rate Chart
+            renderErrorAnalysis();
+        }
+
+        function renderErrorAnalysis() {
+            const section = document.getElementById('error-section');
+            if (errorData.length === 0) {
+                if (section) section.style.display = 'none';
+                return;
+            }
+            if (section) section.style.display = '';
+
+            const filtered = errorData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
+            if (filtered.length === 0) {
+                if (section) section.style.display = 'none';
+                return;
+            }
+
+            // TC+API별 에러율 집계
+            const groups = {};
+            for (let i = 0; i < filtered.length; i++) {
+                const d = filtered[i];
+                const key = `${d.tc}|${d.api}`;
+                if (!groups[key]) groups[key] = { total: 0, failed: 0 };
+                groups[key].total++;
+                groups[key].failed += d.failed;
+            }
+
+            // 에러율 요약 테이블
+            const summaryEl = document.getElementById('error-summary');
+            const rows = Object.entries(groups).map(([key, g]) => {
+                const [tc, api] = key.split('|');
+                const rate = (g.failed / g.total) * 100;
+                const rateStr = rate.toFixed(2);
+                const color = getApiColor(api);
+                const barWidth = Math.min(rate * 2, 100); // 50%에서 바 꽉 참
+                const rateColor = rate === 0 ? '#10b981' : rate < 1 ? '#f59e0b' : rate < 5 ? '#f97316' : '#ef4444';
+                return { tc, api, total: g.total, failed: g.failed, rate, rateStr, color, barWidth, rateColor };
+            }).sort((a, b) => b.rate - a.rate);
+
+            summaryEl.innerHTML = `
+                <div style="overflow-x:auto;">
+                    <table class="w-full" style="font-size:0.78rem;">
+                        <thead><tr style="border-bottom:1px solid var(--border);">
+                            <th class="text-left py-2 px-2 t-text-muted font-bold">TC</th>
+                            <th class="text-left py-2 px-2 t-text-muted font-bold">API</th>
+                            <th class="text-right py-2 px-2 t-text-muted font-bold">총 요청</th>
+                            <th class="text-right py-2 px-2 t-text-muted font-bold">실패</th>
+                            <th class="text-right py-2 px-2 t-text-muted font-bold" style="min-width:160px;">에러율</th>
+                        </tr></thead>
+                        <tbody>${rows.map(d => `<tr style="border-bottom:1px solid var(--border);">
+                            <td class="py-1.5 px-2 font-bold text-xs uppercase t-text-dim">${d.tc}</td>
+                            <td class="py-1.5 px-2"><span class="px-2 py-0.5 rounded text-xs font-black uppercase" style="color:${d.color};background:${d.color}1a;border:1px solid ${d.color}40">${d.api}</span></td>
+                            <td class="text-right py-1.5 px-2 t-text-muted font-mono text-xs">${d.total.toLocaleString()}</td>
+                            <td class="text-right py-1.5 px-2 font-mono text-xs" style="color:${d.rateColor};font-weight:700;">${d.failed.toLocaleString()}</td>
+                            <td class="text-right py-1.5 px-2"><div style="display:flex;align-items:center;gap:0.5rem;justify-content:flex-end;">
+                                <div style="flex:1;max-width:80px;height:6px;background:var(--bg-body);border-radius:3px;overflow:hidden;">
+                                    <div style="width:${d.barWidth}%;height:100%;background:${d.rateColor};border-radius:3px;"></div>
+                                </div>
+                                <span class="font-mono font-bold text-xs" style="color:${d.rateColor};min-width:50px;">${d.rateStr}%</span>
+                            </div></td>
+                        </tr>`).join('')}</tbody>
+                    </table>
+                </div>`;
+
+            // 시계열 에러율 차트
+            const errorTimeline = {};
+            for (let i = 0; i < filtered.length; i++) {
+                const d = filtered[i];
+                if (!errorTimeline[d.time]) errorTimeline[d.time] = {};
+                if (!errorTimeline[d.time][d.api]) errorTimeline[d.time][d.api] = { total: 0, failed: 0 };
+                errorTimeline[d.time][d.api].total++;
+                errorTimeline[d.time][d.api].failed += d.failed;
+            }
+
+            const errTimes = Object.keys(errorTimeline).sort();
+            const errApis = [...new Set(filtered.map(d => d.api))].sort();
+            const errType = chartTypeState.errorChart;
+
+            const errDatasets = errApis.map(api => {
+                const color = getApiColor(api);
+                const values = errTimes.map(t => {
+                    const slot = errorTimeline[t] && errorTimeline[t][api];
+                    if (!slot || slot.total === 0) return null;
+                    return ((slot.failed / slot.total) * 100).toFixed(2);
+                });
+                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (errType === 'line' ? '15' : '80'), borderWidth: 2 };
+                if (errType === 'line') Object.assign(base, { tension: 0.3, pointRadius: 0, fill: true });
+                if (errType === 'bar') Object.assign(base, { borderRadius: 4 });
+                return base;
+            });
+
+            updateChart('errorChart', errType, errTimes, errDatasets, 'Error Rate [에러율] (%)');
         }
 
         function updateChart(id, type, labels, datasets, yLabel) {
@@ -1096,7 +1230,8 @@
         const chartMetricNames = {
             latencyChart: 'Latency',
             tpsChart: 'TPS',
-            p99Chart: 'p99.9_Tail_Latency'
+            p99Chart: 'p99.9_Tail_Latency',
+            errorChart: 'Error_Rate'
         };
 
         function buildExportFileName(chartId, ext) {
@@ -1198,7 +1333,7 @@
         async function exportAllCharts() {
             const format = document.getElementById('export-all-format').value;
             const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart'];
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart'];
             const validIds = ids.filter(id => charts[id]);
 
             if (validIds.length === 0) {
@@ -1238,7 +1373,7 @@
         async function exportAllTCCharts() {
             const format = document.getElementById('export-all-format').value;
             const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart'];
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart'];
 
             if (filters.tc.size === 0) {
                 showToast('⚠️ 내보낼 데이터가 없습니다');
