@@ -123,6 +123,53 @@ run_k6() {
       "$script_file"
 }
 
+# [핵심 5] 기존 CSV 폴더에 에러 metric 보충 추출
+patch_error_csv() {
+    local target_dir=$1
+    local dir_name=$(basename "$target_dir")
+
+    # 해당 폴더의 기존 CSV에서 session_id(=타임스탬프)를 추출
+    # 폴더명에서 타임스탬프 부분 추출 (export_YYYYMMDD_HHMMSS → YYYYMMDD_HHMMSS)
+    local session_ts=$(echo "$dir_name" | sed 's/^export_//')
+
+    # session_id 기반 조건 구성
+    local condition="WHERE \"session_id\"='${session_ts}'"
+
+    # 에러 metric만 보충
+    local error_metrics=("checks" "http_req_failed")
+
+    for metric in "${error_metrics[@]}"; do
+        local target_file="${target_dir}/${metric}.csv"
+
+        # 이미 존재하고 데이터가 있으면 스킵
+        if [ -f "$target_file" ] && [ $(wc -l < "$target_file") -gt 1 ]; then
+            echo "    -> [${metric}] 이미 존재 (스킵)"
+            continue
+        fi
+
+        echo "    -> [${metric}] 보충 추출 중..."
+        local query="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
+        docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "$target_file"
+
+        if [ ! -s "$target_file" ] || [ $(wc -l < "$target_file") -le 1 ]; then
+            echo "       (해당 세션에 데이터 없음, 전체 범위로 재시도)"
+            # session_id로 못 찾으면 전체에서 추출 시도
+            query="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" tz('Asia/Seoul')"
+            docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "$target_file"
+
+            if [ ! -s "$target_file" ] || [ $(wc -l < "$target_file") -le 1 ]; then
+                echo "       (데이터 없음)"
+            else
+                local lines=$(wc -l < "$target_file")
+                echo "       ✅ 전체 데이터로 보충 완료 (${lines}행)"
+            fi
+        else
+            local lines=$(wc -l < "$target_file")
+            echo "       ✅ 세션 데이터 보충 완료 (${lines}행)"
+        fi
+    done
+}
+
 case "$COMMAND" in
   setup-alias)
     echo "[진행] 터미널에 'bm' 단축 명령어(Alias)를 영구 등록합니다..."
@@ -289,7 +336,7 @@ case "$COMMAND" in
   export-full)
     init_influx_db
     echo "============================================================"
-    echo "  [전체 추출] 모든 백업 복원 → 전체 데이터 CSV 추출 (에러 포함)"
+    echo "  [전체 추출] 백업 복원 → 기존 CSV 폴더에 에러 데이터 보충"
     echo "============================================================"
 
     # 1단계: 모든 백업 복원
@@ -309,19 +356,49 @@ case "$COMMAND" in
         echo "  -> 백업 폴더 없음 (현재 DB 데이터만 사용)"
     fi
 
-    # 2단계: 전체 CSV 추출 (에러 metric 포함)
-    echo -e "\n>>> 2단계: 전체 데이터 CSV 추출 (에러율 포함) <<<"
-    export_csv "all"
+    # 2단계: 기존 CSV 폴더 스캔 → 에러 CSV 없는 폴더에 보충
+    echo -e "\n>>> 2단계: 기존 CSV 폴더에 에러 데이터 보충 <<<"
 
+    PATCHED=0
+    SKIPPED=0
+
+    if [ -d "$CSV_DIR" ]; then
+        for csv_dir in "$CSV_DIR"/export_*/; do
+            [ ! -d "$csv_dir" ] && continue
+            dir_name=$(basename "$csv_dir")
+
+            # 기존 성능 CSV가 있는 폴더만 대상 (빈 폴더 제외)
+            if [ ! -f "${csv_dir}/http_req_duration.csv" ] && [ ! -f "${csv_dir}/grpc_req_duration.csv" ]; then
+                continue
+            fi
+
+            has_checks=false
+            has_failed=false
+            [ -f "${csv_dir}/checks.csv" ] && [ $(wc -l < "${csv_dir}/checks.csv") -gt 1 ] && has_checks=true
+            [ -f "${csv_dir}/http_req_failed.csv" ] && [ $(wc -l < "${csv_dir}/http_req_failed.csv") -gt 1 ] && has_failed=true
+
+            if $has_checks && $has_failed; then
+                echo "  [${dir_name}] 에러 CSV 이미 존재 (스킵)"
+                SKIPPED=$((SKIPPED + 1))
+            else
+                echo "  [${dir_name}] 에러 CSV 보충 중..."
+                patch_error_csv "$csv_dir"
+                PATCHED=$((PATCHED + 1))
+            fi
+        done
+    else
+        echo "  -> CSV 폴더가 없습니다. 먼저 테스트를 실행하세요."
+    fi
+
+    echo ""
     echo "============================================================"
-    echo " [완료] 전체 복원 + 추출이 완료되었습니다."
-    echo " Analyzer에 아래 CSV를 모두 드래그하세요:"
-    echo "   - http_req_duration.csv  (Latency, p99.9)"
-    echo "   - grpc_req_duration.csv  (Latency, p99.9)"
-    echo "   - http_reqs.csv          (TPS)"
-    echo "   - checks.csv             (에러율 - gRPC 포함)"
-    echo "   - http_req_failed.csv    (에러율 - HTTP)"
-    echo "   - vus.csv                (동시접속자 수)"
+    echo " [완료] 에러 데이터 보충 결과"
+    echo "   - 보충된 폴더: ${PATCHED}개"
+    echo "   - 이미 완료된 폴더: ${SKIPPED}개"
+    echo ""
+    echo " 각 폴더의 CSV를 Analyzer에 드래그하세요:"
+    echo "   http_req_duration / grpc_req_duration / http_reqs"
+    echo "   + checks / http_req_failed / vus"
     echo "============================================================"
     ;;
 
