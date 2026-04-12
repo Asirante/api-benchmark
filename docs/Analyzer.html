@@ -653,7 +653,8 @@
                 const isError = fname.includes('checks') || fname.includes('failed');
 
                 file.data.forEach(row => {
-                    const val = row.value || row.avg || row.mean;
+                    const rawVal = row.value;
+                    const val = (rawVal !== undefined && rawVal !== null && rawVal !== '') ? rawVal : (row.avg !== undefined ? row.avg : row.mean);
                     const api = row.api || row.name;
                     const tc = row.tc || 'etc';
 
@@ -662,7 +663,8 @@
                         return;
                     }
 
-                    if (val === undefined || !api || api === 'vus') return;
+                    if (val === undefined || val === null || val === '') return;
+                    if (!api || api === 'vus') return;
 
                     const timeStr = formatK6Time(row.time);
                     if (!timeStr) return;
