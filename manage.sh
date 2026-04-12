@@ -402,6 +402,107 @@ case "$COMMAND" in
     echo "============================================================"
     ;;
 
+  package)
+    echo "============================================================"
+    echo "  [패키징] CSV 폴더를 VUs별 이름으로 정리하여 ZIP 압축"
+    echo "============================================================"
+
+    if [ ! -d "$CSV_DIR" ]; then
+        echo "[에러] csv_results 폴더가 없습니다."
+        exit 1
+    fi
+
+    # zip 설치 확인
+    if ! command -v zip &> /dev/null; then
+        echo "[에러] zip 명령어가 없습니다. sudo apt install zip 으로 설치하세요."
+        exit 1
+    fi
+
+    PACKAGE_DIR="${CSV_DIR}/packaged_${TIMESTAMP}"
+    mkdir -p "$PACKAGE_DIR"
+
+    PACK_COUNT=0
+
+    for csv_dir in "$CSV_DIR"/export_*/; do
+        [ ! -d "$csv_dir" ] && continue
+        dir_name=$(basename "$csv_dir")
+
+        # vus.csv에서 vus_group 값 추출
+        vus_file="${csv_dir}/vus.csv"
+        VUS_LABEL="unknown"
+
+        if [ -f "$vus_file" ] && [ $(wc -l < "$vus_file") -gt 1 ]; then
+            # vus.csv의 헤더에서 vus_group 컬럼 위치 찾기
+            header=$(head -1 "$vus_file")
+
+            # vus_group 컬럼이 있는 경우
+            if echo "$header" | grep -q "vus_group"; then
+                col_idx=$(echo "$header" | tr ',' '\n' | grep -n "vus_group" | head -1 | cut -d: -f1)
+                # 데이터 행에서 vus_group 값 추출 (빈 값이 아닌 첫 번째 값)
+                vus_val=$(tail -n +2 "$vus_file" | awk -F',' -v col="$col_idx" '{
+                    val=$col;
+                    gsub(/^[ \t]+|[ \t]+$/, "", val);
+                    if (val != "" && val != "null") { print val; exit; }
+                }')
+                if [ -n "$vus_val" ]; then
+                    VUS_LABEL="$vus_val"
+                fi
+            fi
+        fi
+
+        # test_type도 추출 (standard, spike, proxy_overhead 구분용)
+        TEST_TYPE=""
+        if [ -f "$vus_file" ] && echo "$header" | grep -q "test_type"; then
+            type_col=$(echo "$header" | tr ',' '\n' | grep -n "test_type" | head -1 | cut -d: -f1)
+            type_val=$(tail -n +2 "$vus_file" | awk -F',' -v col="$type_col" '{
+                val=$col;
+                gsub(/^[ \t]+|[ \t]+$/, "", val);
+                if (val != "" && val != "null") { print val; exit; }
+            }')
+            if [ -n "$type_val" ]; then
+                TEST_TYPE="_${type_val}"
+            fi
+        fi
+
+        # 새 폴더명 생성: VUs_1000_standard 같은 형태
+        NEW_NAME="VUs_${VUS_LABEL}${TEST_TYPE}"
+
+        # 동일 이름 충돌 방지 (같은 VUs로 여러 세션이 있을 수 있음)
+        FINAL_NAME="$NEW_NAME"
+        COUNTER=1
+        while [ -d "${PACKAGE_DIR}/${FINAL_NAME}" ]; do
+            FINAL_NAME="${NEW_NAME}_${COUNTER}"
+            COUNTER=$((COUNTER + 1))
+        done
+
+        echo "  ${dir_name} → ${FINAL_NAME}"
+        cp -r "$csv_dir" "${PACKAGE_DIR}/${FINAL_NAME}"
+        PACK_COUNT=$((PACK_COUNT + 1))
+    done
+
+    if [ $PACK_COUNT -eq 0 ]; then
+        echo "[알림] 패키징할 CSV 폴더가 없습니다."
+        rm -rf "$PACKAGE_DIR"
+        exit 0
+    fi
+
+    # ZIP 압축
+    ZIP_NAME="benchmark_results_${TIMESTAMP}.zip"
+    cd "$PACKAGE_DIR" && zip -r "../${ZIP_NAME}" . -q && cd - > /dev/null
+
+    # 정리
+    rm -rf "$PACKAGE_DIR"
+
+    echo ""
+    echo "============================================================"
+    echo " [완료] ${PACK_COUNT}개 세션이 ZIP으로 패키징되었습니다."
+    echo " 파일: ${CSV_DIR}/${ZIP_NAME}"
+    echo ""
+    echo " ZIP 내부 구조:"
+    zip -sf "${CSV_DIR}/${ZIP_NAME}" 2>/dev/null | head -30
+    echo "============================================================"
+    ;;
+
   logs)
     echo "[로그] 실시간 컨테이너 로그 출력 (종료: Ctrl+C)"
     docker compose logs -f
@@ -427,6 +528,7 @@ case "$COMMAND" in
     echo " [백업 복원 & 전체 추출]"
     echo "  restore-all           : influxdb_backups/ 폴더의 모든 백업본을 DB에 복원"
     echo "  export-full           : [권장] 모든 백업 복원 → 전체 CSV 추출 (에러율 포함, 원커맨드)"
+    echo "  package               : CSV 폴더를 VUs별 이름으로 정리하여 ZIP 압축"
     echo ""
     echo " [환경 관리]"
     echo "  start / stop / restart / clean / logs"
