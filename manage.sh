@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v7.2 - 세션 기반 독립 추출 완벽 분리)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v8.0 - 에러율 분석 + 백업 복원 지원)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -74,8 +74,8 @@ export_csv() {
     fi
     echo "============================================================"
 
-    # 뽑아낼 핵심 지표들
-    local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "vus")
+    # 뽑아낼 핵심 지표들 (성능 + 에러율)
+    local metrics=("http_req_duration" "grpc_req_duration" "http_reqs" "checks" "http_req_failed" "vus")
     
     for metric in "${metrics[@]}"; do
         echo "  - [${metric}] 데이터 추출 중..."
@@ -232,6 +232,99 @@ case "$COMMAND" in
     export_csv "$TARGET_VUS"
     ;;
 
+  restore-all)
+    init_influx_db
+    echo "============================================================"
+    echo "  [복원] 모든 백업본을 InfluxDB에 순차 복원합니다."
+    echo "  백업 경로: $BACKUP_DIR"
+    echo "============================================================"
+
+    if [ ! -d "$BACKUP_DIR" ]; then
+        echo "[에러] 백업 폴더($BACKUP_DIR)가 존재하지 않습니다."
+        exit 1
+    fi
+
+    BACKUP_COUNT=0
+    FAIL_COUNT=0
+
+    for backup_dir in "$BACKUP_DIR"/*/; do
+        if [ ! -d "$backup_dir" ]; then
+            continue
+        fi
+
+        backup_name=$(basename "$backup_dir")
+        echo ""
+        echo "  ──────────────────────────────────────"
+        echo "  [${BACKUP_COUNT}] 복원 중: ${backup_name}"
+
+        # 컨테이너 안으로 백업 복사
+        docker cp "$backup_dir" "benchmark_influxdb:/var/lib/influxdb/restore_temp"
+
+        # 복원 실행 (이미 존재하는 데이터는 스킵됨)
+        docker exec benchmark_influxdb influxd restore -portable -db "$INFLUX_DB_NAME" "/var/lib/influxdb/restore_temp" 2>&1
+
+        if [ $? -eq 0 ]; then
+            echo "  -> ✅ 복원 성공"
+            BACKUP_COUNT=$((BACKUP_COUNT + 1))
+        else
+            echo "  -> ⚠️  복원 실패 또는 중복 데이터 (계속 진행)"
+            FAIL_COUNT=$((FAIL_COUNT + 1))
+        fi
+
+        # 임시 파일 정리
+        docker exec benchmark_influxdb rm -rf "/var/lib/influxdb/restore_temp"
+    done
+
+    echo ""
+    echo "============================================================"
+    echo " [완료] 백업 복원 결과"
+    echo "   - 성공: ${BACKUP_COUNT}개"
+    echo "   - 실패/중복: ${FAIL_COUNT}개"
+    echo ""
+    echo " 확인 명령어:"
+    echo "   docker exec benchmark_influxdb influx -database k6 -execute 'SHOW MEASUREMENTS' -format csv"
+    echo "============================================================"
+    ;;
+
+  export-full)
+    init_influx_db
+    echo "============================================================"
+    echo "  [전체 추출] 모든 백업 복원 → 전체 데이터 CSV 추출 (에러 포함)"
+    echo "============================================================"
+
+    # 1단계: 모든 백업 복원
+    echo -e "\n>>> 1단계: 모든 백업본 InfluxDB 복원 <<<"
+
+    if [ -d "$BACKUP_DIR" ]; then
+        for backup_dir in "$BACKUP_DIR"/*/; do
+            [ ! -d "$backup_dir" ] && continue
+            backup_name=$(basename "$backup_dir")
+            echo "  - 복원 중: ${backup_name}"
+            docker cp "$backup_dir" "benchmark_influxdb:/var/lib/influxdb/restore_temp"
+            docker exec benchmark_influxdb influxd restore -portable -db "$INFLUX_DB_NAME" "/var/lib/influxdb/restore_temp" 2>/dev/null
+            docker exec benchmark_influxdb rm -rf "/var/lib/influxdb/restore_temp"
+        done
+        echo "  -> 백업 복원 완료"
+    else
+        echo "  -> 백업 폴더 없음 (현재 DB 데이터만 사용)"
+    fi
+
+    # 2단계: 전체 CSV 추출 (에러 metric 포함)
+    echo -e "\n>>> 2단계: 전체 데이터 CSV 추출 (에러율 포함) <<<"
+    export_csv "all"
+
+    echo "============================================================"
+    echo " [완료] 전체 복원 + 추출이 완료되었습니다."
+    echo " Analyzer에 아래 CSV를 모두 드래그하세요:"
+    echo "   - http_req_duration.csv  (Latency, p99.9)"
+    echo "   - grpc_req_duration.csv  (Latency, p99.9)"
+    echo "   - http_reqs.csv          (TPS)"
+    echo "   - checks.csv             (에러율 - gRPC 포함)"
+    echo "   - http_req_failed.csv    (에러율 - HTTP)"
+    echo "   - vus.csv                (동시접속자 수)"
+    echo "============================================================"
+    ;;
+
   logs)
     echo "[로그] 실시간 컨테이너 로그 출력 (종료: Ctrl+C)"
     docker compose logs -f
@@ -250,9 +343,13 @@ case "$COMMAND" in
     echo "  test-all [VUs]        : [권장] 스파이크 제외 연속 실행 후 해당 데이터만 독립 추출"
     echo ""
     echo " [데이터 추출]"
-    echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출"
+    echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출 (에러 포함)"
     echo "  export-csv - 1000     : VUs가 1000인 데이터만 필터링하여 CSV로 추출"
     echo "  export                : InfluxDB 바이너리 전체 백업"
+    echo ""
+    echo " [백업 복원 & 전체 추출]"
+    echo "  restore-all           : influxdb_backups/ 폴더의 모든 백업본을 DB에 복원"
+    echo "  export-full           : [권장] 모든 백업 복원 → 전체 CSV 추출 (에러율 포함, 원커맨드)"
     echo ""
     echo " [환경 관리]"
     echo "  start / stop / restart / clean / logs"
