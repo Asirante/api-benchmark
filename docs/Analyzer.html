@@ -467,6 +467,7 @@
                                     <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
                                     📈 [시계열] 지연 시간 변화 추이 (Latency ms)
                                 </h3>
+                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">요청~응답 전체 소요 시간. 프로토콜별 체감 응답 속도 비교의 핵심 지표</p>
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <div class="chart-type-selector" id="type-sel-latencyChart"></div>
                                     <div style="position:relative">
@@ -491,6 +492,7 @@
                                     <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
                                     ⚡ [처리량] 초당 요청 처리 수 (TPS)
                                 </h3>
+                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">단위 시간당 처리 완료한 요청 수. 부하 증가 시 처리량 방어력 측정</p>
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <div class="chart-type-selector" id="type-sel-tpsChart"></div>
                                     <div style="position:relative">
@@ -515,6 +517,7 @@
                                     <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
                                     🏆 [비교] 최악의 0.1% 꼬리 지연 시간 비교 (ms)
                                 </h3>
+                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">1000건 중 가장 느린 1건의 응답 시간. 실 사용자 최악 체감 지표</p>
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <div class="chart-type-selector" id="type-sel-p99Chart"></div>
                                     <div style="position:relative">
@@ -539,6 +542,7 @@
                                     <span class="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
                                     🚨 [안정성] 에러율 분석 (Error Rate %)
                                 </h3>
+                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">요청 실패 비율. 0%여도 Latency가 높으면 사실상 서비스 불능</p>
                                 <div style="display:flex;align-items:center;gap:0.5rem;">
                                     <div class="chart-type-selector" id="type-sel-errorChart"></div>
                                     <div style="position:relative">
@@ -558,6 +562,98 @@
                             <div id="error-summary" style="margin-bottom:1rem;"></div>
                             <div class="h-[300px]"><canvas id="errorChart"></canvas></div>
                         </div>
+                        <!-- Server Waiting Chart -->
+                        <div class="card" id="waiting-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                                    ⏳ [병목] 서버 처리 대기 시간 (TTFB / Waiting ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-waitingChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'waitingChart')">💾 내보내기 ▾</button>
+                                        <div class="chart-export-dropdown" id="dropdown-waitingChart">
+                                            <div class="export-option" onclick="exportChart('waitingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('waitingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('waitingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">서버가 요청을 받고 응답을 시작하기까지 걸린 시간 (TTFB). Latency의 주요 병목 원인 분석 · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span> — k6 gRPC 모듈은 타이밍 분해를 미지원하므로 gRPC는 duration으로 비교</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="waitingChart"></canvas></div>
+                        </div>
+                        <!-- Connection Blocked Chart -->
+                        <div class="card" id="blocked-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
+                                    🔒 [커넥션] 요청 블로킹 대기 시간 (Blocked ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-blockedChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'blockedChart')">💾 내보내기 ▾</button>
+                                        <div class="chart-export-dropdown" id="dropdown-blockedChart">
+                                            <div class="export-option" onclick="exportChart('blockedChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('blockedChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('blockedChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">요청 전 커넥션 풀 대기 시간. HTTP/1.1 커넥션 포화 여부 판단 (Docker 내부 통신에서는 낮을 수 있음) · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="blockedChart"></canvas></div>
+                        </div>
+                        <!-- Request Sending Chart -->
+                        <div class="card" id="sending-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                                    📤 [직렬화] 요청 데이터 전송 시간 (Sending ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-sendingChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'sendingChart')">💾 내보내기 ▾</button>
+                                        <div class="chart-export-dropdown" id="dropdown-sendingChart">
+                                            <div class="export-option" onclick="exportChart('sendingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('sendingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('sendingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">클라이언트→서버 요청 전송 시간. JSON 직렬화 크기를 간접 측정 (쓰기 TC6에서 유의미) · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="sendingChart"></canvas></div>
+                        </div>
+                        <!-- Response Receiving Chart -->
+                        <div class="card" id="receiving-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
+                                    📥 [역직렬화] 응답 데이터 수신 시간 (Receiving ms)
+                                </h3>
+                                <div style="display:flex;align-items:center;gap:0.5rem;">
+                                    <div class="chart-type-selector" id="type-sel-receivingChart"></div>
+                                    <div style="position:relative">
+                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'receivingChart')">💾 내보내기 ▾</button>
+                                        <div class="chart-export-dropdown" id="dropdown-receivingChart">
+                                            <div class="export-option" onclick="exportChart('receivingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
+                                            <div class="export-option" onclick="exportChart('receivingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
+                                            <div class="export-option" onclick="exportChart('receivingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">서버→클라이언트 응답 수신 시간. 대용량 페이로드(TC2, TC5)에서 JSON 응답의 전송 비용 확인 · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="receivingChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -568,6 +664,10 @@
         let fullData = [];
         let reqsData = [];  // TPS 차트 전용 (http_reqs, grpc_reqs)
         let errorData = []; // 에러율 분석용 (checks, http_req_failed)
+        let waitingData = []; // 서버 처리 대기 시간 (http_req_waiting)
+        let blockedData = []; // 커넥션 블로킹 시간 (http_req_blocked)
+        let sendingData = []; // 요청 직렬화+전송 시간 (http_req_sending)
+        let receivingData = []; // 응답 수신+역직렬화 시간 (http_req_receiving)
         let currentSort = { key: 'p999', asc: true };
         let filters = { tc: new Set(), api: new Set() };
         let activeFilters = { tc: new Set(), api: new Set() };
@@ -651,6 +751,10 @@
                 const isReqs = fname.includes('_reqs') && !fname.includes('duration');
                 const isVus = fname.includes('vus');
                 const isError = fname.includes('checks') || fname.includes('failed');
+                const isWaiting = fname.includes('waiting');
+                const isBlocked = fname.includes('blocked');
+                const isSending = fname.includes('sending');
+                const isReceiving = fname.includes('receiving');
 
                 file.data.forEach(row => {
                     const rawVal = row.value;
@@ -685,16 +789,17 @@
                     } else if (isReqs) {
                         reqsData.push(dataRow);
                     } else if (isError) {
-                        // checks: value=1이면 성공, value=0이면 실패
-                        // http_req_failed: value=1이면 실패, value=0이면 성공
                         const isChecks = fname.includes('checks');
                         const failed = isChecks ? (dataRow.value === 0) : (dataRow.value === 1);
-                        errorData.push({
-                            tc: dataRow.tc,
-                            api: dataRow.api,
-                            time: dataRow.time,
-                            failed: failed ? 1 : 0
-                        });
+                        errorData.push({ tc: dataRow.tc, api: dataRow.api, time: dataRow.time, failed: failed ? 1 : 0 });
+                    } else if (isWaiting) {
+                        waitingData.push(dataRow);
+                    } else if (isBlocked) {
+                        blockedData.push(dataRow);
+                    } else if (isSending) {
+                        sendingData.push(dataRow);
+                    } else if (isReceiving) {
+                        receivingData.push(dataRow);
                     }
                 });
             });
@@ -956,10 +1061,14 @@
             latencyChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
             tpsChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
             p99Chart: { types: ['bar', 'polarArea', 'doughnut', 'radar'], labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' }, recommended: 'bar' },
-            errorChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' }
+            errorChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
+            waitingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
+            blockedChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
+            sendingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
+            receivingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' }
         };
 
-        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar', errorChart: 'line' };
+        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar', errorChart: 'line', waitingChart: 'line', blockedChart: 'line', sendingChart: 'line', receivingChart: 'line' };
 
         function renderChartTypeSelectors() {
             Object.keys(chartTypeConfig).forEach(chartId => {
@@ -1061,6 +1170,12 @@
 
             // Error Rate Chart
             renderErrorAnalysis();
+
+            // Timing Breakdown Charts (HTTP만 — gRPC는 이 metric에 미포함)
+            renderTimingChart(waitingData, 'waitingChart', 'waiting-section', 'Server Waiting [서버 처리 대기] (ms)');
+            renderTimingChart(blockedData, 'blockedChart', 'blocked-section', 'Blocked [커넥션 대기] (ms)');
+            renderTimingChart(sendingData, 'sendingChart', 'sending-section', 'Sending [요청 전송] (ms)');
+            renderTimingChart(receivingData, 'receivingChart', 'receiving-section', 'Receiving [응답 수신] (ms)');
         }
 
         function renderErrorAnalysis() {
@@ -1154,6 +1269,48 @@
             updateChart('errorChart', errType, errTimes, errDatasets, 'Error Rate [에러율] (%)');
         }
 
+        function renderTimingChart(dataArr, chartId, sectionId, yLabel) {
+            const section = document.getElementById(sectionId);
+            if (dataArr.length === 0) {
+                if (section) section.style.display = 'none';
+                return;
+            }
+            if (section) section.style.display = '';
+
+            const filtered = dataArr.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
+            if (filtered.length === 0) {
+                if (section) section.style.display = 'none';
+                return;
+            }
+
+            const timeline = {};
+            for (let i = 0; i < filtered.length; i++) {
+                const d = filtered[i];
+                if (!timeline[d.time]) timeline[d.time] = {};
+                if (!timeline[d.time][d.api]) timeline[d.time][d.api] = { sum: 0, count: 0 };
+                timeline[d.time][d.api].sum += d.value;
+                timeline[d.time][d.api].count++;
+            }
+
+            const times = Object.keys(timeline).sort();
+            const apis = [...new Set(filtered.map(d => d.api))].sort();
+            const chartType = chartTypeState[chartId];
+
+            const datasets = apis.map(api => {
+                const color = getApiColor(api);
+                const values = times.map(t => {
+                    const slot = timeline[t] && timeline[t][api];
+                    return slot ? (slot.sum / slot.count).toFixed(2) : null;
+                });
+                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (chartType === 'line' ? '15' : '80'), borderWidth: 2 };
+                if (chartType === 'line') Object.assign(base, { tension: 0.15, pointRadius: 0, fill: true });
+                if (chartType === 'bar') Object.assign(base, { borderRadius: 4 });
+                return base;
+            });
+
+            updateChart(chartId, chartType, times, datasets, yLabel);
+        }
+
         function updateChart(id, type, labels, datasets, yLabel) {
             if (charts[id]) charts[id].destroy();
             const isDark = document.body.getAttribute('data-theme') === 'dark';
@@ -1233,7 +1390,11 @@
             latencyChart: 'Latency',
             tpsChart: 'TPS',
             p99Chart: 'p99.9_Tail_Latency',
-            errorChart: 'Error_Rate'
+            errorChart: 'Error_Rate',
+            waitingChart: 'Server_Waiting',
+            blockedChart: 'Connection_Blocked',
+            sendingChart: 'Request_Sending',
+            receivingChart: 'Response_Receiving'
         };
 
         function buildExportFileName(chartId, ext) {
@@ -1335,7 +1496,7 @@
         async function exportAllCharts() {
             const format = document.getElementById('export-all-format').value;
             const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart'];
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart', 'waitingChart', 'blockedChart', 'sendingChart', 'receivingChart'];
             const validIds = ids.filter(id => charts[id]);
 
             if (validIds.length === 0) {
@@ -1375,7 +1536,7 @@
         async function exportAllTCCharts() {
             const format = document.getElementById('export-all-format').value;
             const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart'];
+            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart', 'waitingChart', 'blockedChart', 'sendingChart', 'receivingChart'];
 
             if (filters.tc.size === 0) {
                 showToast('⚠️ 내보낼 데이터가 없습니다');
