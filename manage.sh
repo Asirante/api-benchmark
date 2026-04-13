@@ -245,8 +245,23 @@ case "$COMMAND" in
 
   test)
     init_influx_db
-    echo "[테스트] 기본 아키텍처 벤치마크 시작 (목표 VUs: ${VUS_ARG})"
-    run_k6 "benchmark.js" "standard" "$VUS_ARG"
+    echo "============================================================"
+    echo "  [격리 테스트] 프로토콜별 순차 벤치마크 (목표 VUs: ${VUS_ARG})"
+    echo "  * REST → GQL → gRPC Direct 순서 (쿨다운 30초씩)"
+    echo "============================================================"
+
+    echo -e "\n>>> [1/3] REST <<<"
+    run_k6 "bench_rest.js" "standard" "$VUS_ARG"
+    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+
+    echo -e "\n>>> [2/3] GraphQL <<<"
+    run_k6 "bench_gql.js" "standard" "$VUS_ARG"
+    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+
+    echo -e "\n>>> [3/3] gRPC Direct <<<"
+    run_k6 "bench_grpc.js" "standard" "$VUS_ARG"
+
+    echo -e "\n[완료] ${VUS_ARG} VUs 격리 테스트 완료."
     ;;
 
   test-proxy)
@@ -268,24 +283,101 @@ case "$COMMAND" in
   test-all)
     init_influx_db
     echo "============================================================"
-    echo "  [자동화] 모든 벤치마크 시나리오 순차 실행 (목표: $VUS_ARG VUs) "
-    echo "  * 주의: 스파이크 테스트(TC8)는 과부하 방지를 위해 자동 실행에서 제외됩니다."
+    echo "  [자동화] 격리 벤치마크 전체 실행 (목표: $VUS_ARG VUs)"
+    echo "  * REST → GQL → gRPC Direct → gRPC Envoy(TC9)"
+    echo "  * 각 프로토콜 사이 30초 쿨다운으로 DB 경합 완전 제거"
     echo "============================================================"
-    
-    echo -e "\n>>> 1단계: 표준 아키텍처 테스트 시작 <<<"
-    run_k6 "benchmark.js" "standard" "$VUS_ARG"
+
+    echo -e "\n>>> [1/4] REST 격리 테스트 <<<"
+    run_k6 "bench_rest.js" "standard" "$VUS_ARG"
+    echo -e "\n>>> [쿨다운] 30초 대기 <<<"; sleep 30
+
+    echo -e "\n>>> [2/4] GraphQL 격리 테스트 <<<"
+    run_k6 "bench_gql.js" "standard" "$VUS_ARG"
+    echo -e "\n>>> [쿨다운] 30초 대기 <<<"; sleep 30
+
+    echo -e "\n>>> [3/4] gRPC Direct 격리 테스트 <<<"
+    run_k6 "bench_grpc.js" "standard" "$VUS_ARG"
+    echo -e "\n>>> [쿨다운] 30초 대기 <<<"; sleep 30
+
+    echo -e "\n>>> [4/4] gRPC Envoy 프록시 오버헤드 테스트 (TC9) <<<"
+    run_k6 "bench_grpc_envoy.js" "proxy_overhead" "$VUS_ARG"
+
     sleep 5
-    
-    echo -e "\n>>> 2단계: Envoy 프록시 오버헤드 테스트 시작 <<<"
-    run_k6 "benchmark_envoy.js" "proxy_overhead" "$VUS_ARG"
-    sleep 5
-    
-    echo -e "\n>>> 3단계: 테스트 결과 데이터 자동 추출 <<<"
+    echo -e "\n>>> 데이터 자동 추출 <<<"
     export_data "k6_backup"
     export_csv "current"
-    
+
     echo "============================================================"
-    echo " [완료] 테스트가 종료되고 현재 세션의 데이터만 분리 백업되었습니다."
+    echo " [완료] ${VUS_ARG} VUs 격리 테스트 종료. 데이터 추출 완료."
+    echo "============================================================"
+    ;;
+
+  test-all-cycle)
+    # 사용법: ./manage.sh test-all-cycle 100 300 500 1000
+    # 띄어쓰기로 구분된 VUs 목록을 순차적으로 돌림
+    shift  # 첫 번째 인자(test-all-cycle) 제거
+    VUS_LIST="$@"
+
+    if [ -z "$VUS_LIST" ]; then
+        echo "[에러] VUs 목록을 지정하세요."
+        echo "  사용법: ./manage.sh test-all-cycle 100 300 500 1000 1500 2000"
+        exit 1
+    fi
+
+    init_influx_db
+
+    TOTAL_SETS=$(echo "$VUS_LIST" | wc -w)
+    CURRENT_SET=0
+
+    echo "============================================================"
+    echo "  [전체 사이클] 격리 벤치마크 다중 VUs 자동 실행"
+    echo "  VUs 목록: $VUS_LIST"
+    echo "  총 ${TOTAL_SETS}세트 × 4프로토콜 = $((TOTAL_SETS * 4))회 테스트"
+    echo "  예상 소요: 약 $((TOTAL_SETS * (60*4 + 30*4 + 5)))초"
+    echo "============================================================"
+
+    for VUS_TARGET in $VUS_LIST; do
+        CURRENT_SET=$((CURRENT_SET + 1))
+        echo ""
+        echo "┌──────────────────────────────────────────────────────────┐"
+        echo "│  [${CURRENT_SET}/${TOTAL_SETS}] VUs = ${VUS_TARGET} 세트 시작                       "
+        echo "└──────────────────────────────────────────────────────────┘"
+
+        echo -e "\n>>> [${VUS_TARGET} VUs 1/4] REST <<<"
+        run_k6 "bench_rest.js" "standard" "$VUS_TARGET"
+        echo ">>> [쿨다운] 30초 <<<"; sleep 30
+
+        echo -e "\n>>> [${VUS_TARGET} VUs 2/4] GraphQL <<<"
+        run_k6 "bench_gql.js" "standard" "$VUS_TARGET"
+        echo ">>> [쿨다운] 30초 <<<"; sleep 30
+
+        echo -e "\n>>> [${VUS_TARGET} VUs 3/4] gRPC Direct <<<"
+        run_k6 "bench_grpc.js" "standard" "$VUS_TARGET"
+        echo ">>> [쿨다운] 30초 <<<"; sleep 30
+
+        echo -e "\n>>> [${VUS_TARGET} VUs 4/4] gRPC Envoy (TC9) <<<"
+        run_k6 "bench_grpc_envoy.js" "proxy_overhead" "$VUS_TARGET"
+
+        echo ""
+        echo "  [${CURRENT_SET}/${TOTAL_SETS}] VUs=${VUS_TARGET} 세트 완료."
+
+        # 다음 VUs 세트 전에 60초 대기 (DB 완전 안정화)
+        if [ "$CURRENT_SET" -lt "$TOTAL_SETS" ]; then
+            echo ">>> [세트 간 쿨다운] 다음 VUs 세트 전 60초 대기 <<<"
+            sleep 60
+        fi
+    done
+
+    echo -e "\n>>> 전체 결과 데이터 추출 <<<"
+    export_data "k6_cycle_backup"
+    export_csv "current"
+
+    echo ""
+    echo "============================================================"
+    echo " [완료] 전체 사이클 종료!"
+    echo "   실행된 VUs: $VUS_LIST"
+    echo "   총 ${TOTAL_SETS}세트 × 4프로토콜 = $((TOTAL_SETS * 4))회 테스트 완료"
     echo "============================================================"
     ;;
 
@@ -543,10 +635,10 @@ case "$COMMAND" in
     echo "  setup-alias           : './manage.sh'를 'bm'으로 줄여쓰도록 환경 설정"
     echo ""
     echo " [테스트 실행]"
-    echo "  test [VUs]            : [TC1~7] 기본 아키텍처 비교 (예: ./manage.sh test 2000)"
-    echo "  test-proxy [VUs]      : [TC9] 프록시 오버헤드 비교"
-    echo "  test-spike            : [TC8] 스파이크 테스트 (실행 후 해당 데이터만 독립 자동 추출)"
-    echo "  test-all [VUs]        : [권장] 스파이크 제외 연속 실행 후 해당 데이터만 독립 추출"
+    echo "  test [VUs]            : [TC1~7] 프로토콜별 격리 순차 테스트 (REST→GQL→gRPC)"
+    echo "  test-all [VUs]        : [권장] 격리 순차 + Envoy(TC9) 포함 전체 실행"
+    echo "  test-all-cycle V1 V2..: [풀코스] VUs 목록을 순차 실행 (예: 100 300 500 1000)"
+    echo "  test-spike            : [TC8] 스파이크 테스트 (최대 10,000 VUs)"
     echo ""
     echo " [데이터 추출]"
     echo "  export-csv            : 역대 저장된 '모든' 데이터를 CSV로 추출 (에러 포함)"

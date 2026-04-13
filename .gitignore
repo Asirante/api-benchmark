@@ -2,3 +2,4 @@ data/
 *.csv
 influxdb_backups/
 csv_results/
+olds/

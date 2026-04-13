@@ -123,6 +123,22 @@ services:
     volumes:
       - grafana_data:/var/lib/grafana
 
+  # 컨테이너별 CPU/Memory 사용량 모니터링 (논문용 리소스 데이터 수집)
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.47.2
+    container_name: benchmark_cadvisor
+    ports:
+      - "8888:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+      - /dev/disk/:/dev/disk:ro
+    privileged: true
+    devices:
+      - /dev/kmsg
+
 volumes:
   pgdata:
   grafana_data:
