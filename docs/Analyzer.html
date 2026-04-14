@@ -386,7 +386,7 @@
         <!-- Drop Zone -->
         <div id="drop-zone" class="mb-8 rounded-2xl p-12 text-center cursor-pointer">
             <p class="dz-title text-2xl font-black uppercase tracking-[0.3em] mb-2 opacity-50">Drop Files Here</p>
-            <p class="dz-sub text-sm font-semibold">분석할 CSV 파일들을 이 영역으로 드래그하세요</p>
+            <p class="dz-sub text-sm font-semibold">분석할 CSV 파일들을 이 영역으로 드래그하세요 (격리 실행 데이터 권장)</p>
         </div>
 
         <!-- Dashboard -->
@@ -654,6 +654,67 @@
                             <div style="height:0.75rem"></div>
                             <div class="h-[300px]"><canvas id="receivingChart"></canvas></div>
                         </div>
+
+                        <!-- ========================================== -->
+                        <!-- Cross-VUs Comparison Section               -->
+                        <!-- ========================================== -->
+                        <div class="card" id="cross-vus-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-purple-500 rounded-full"></span>
+                                    [VUs 통합 비교] p99.9 Tail Latency by VUs
+                                </h3>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">다중 VUs 폴더를 로드하면 VUs별 API 성능을 한눈에 비교합니다. vus.csv의 vus_group 값으로 자동 분류</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[350px]"><canvas id="crossVusP99Chart"></canvas></div>
+                        </div>
+                        <div class="card" id="cross-vus-avg-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
+                                    [VUs 통합 비교] Average Latency by VUs
+                                </h3>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">VUs 증가에 따른 평균 지연 시간 변화. 프로토콜 효율 구간 vs 인프라 병목 구간 구분 가능</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[350px]"><canvas id="crossVusAvgChart"></canvas></div>
+                        </div>
+                        <div class="card" id="cross-vus-tps-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-teal-500 rounded-full"></span>
+                                    [VUs 통합 비교] TPS by VUs
+                                </h3>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">VUs 증가에 따른 처리량 변화. 부하 방어력과 처리량 포화 지점 확인</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[350px]"><canvas id="crossVusTpsChart"></canvas></div>
+                        </div>
+                        <!-- Resource Memory Chart (cAdvisor) -->
+                        <div class="card" id="resource-mem-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
+                                    [리소스] 컨테이너별 Memory 사용량 (MB)
+                                </h3>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">cAdvisor에서 수집한 컨테이너별 메모리 사용량 추이. resource_*.csv 파일을 함께 드래그하세요</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="resourceMemChart"></canvas></div>
+                        </div>
+                        <!-- Resource CPU Chart -->
+                        <div class="card" id="resource-cpu-section" style="display:none;">
+                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
+                                <h3 class="chart-title" style="margin-bottom:0">
+                                    <span class="w-2.5 h-2.5 bg-orange-500 rounded-full"></span>
+                                    [리소스] 컨테이너별 CPU 사용률 (%)
+                                </h3>
+                            </div>
+                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">인접 샘플 간 CPU 누적 나노초 변화량으로 계산한 사용률. 수집 간격(2초) 기준</p>
+                            <div style="height:0.75rem"></div>
+                            <div class="h-[300px]"><canvas id="resourceCpuChart"></canvas></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -668,6 +729,10 @@
         let blockedData = []; // 커넥션 블로킹 시간 (http_req_blocked)
         let sendingData = []; // 요청 직렬화+전송 시간 (http_req_sending)
         let receivingData = []; // 응답 수신+역직렬화 시간 (http_req_receiving)
+        let crossVusData = {}; // {vus: {tc: {api: [values]}}} — 다중 VUs 비교용
+        let detectedVusGroups = new Set(); // vus_group 값 수집
+        let resourceData = []; // cAdvisor 리소스 데이터 [{time, container, cpu, memory_mb}]
+        const CADVISOR_INTERVAL_SEC = 2; // collect_resources의 수집 간격 (초)
         let currentSort = { key: 'p999', asc: true };
         let filters = { tc: new Set(), api: new Set() };
         let activeFilters = { tc: new Set(), api: new Set() };
@@ -749,12 +814,28 @@
                 const fname = file.name.toLowerCase();
                 const isDuration = fname.includes('duration');
                 const isReqs = fname.includes('_reqs') && !fname.includes('duration');
-                const isVus = fname.includes('vus');
+                const isVus = fname.includes('vus') && !fname.includes('cross');
                 const isError = fname.includes('checks') || fname.includes('failed');
                 const isWaiting = fname.includes('waiting');
                 const isBlocked = fname.includes('blocked');
                 const isSending = fname.includes('sending');
                 const isReceiving = fname.includes('receiving');
+                const isResource = fname.startsWith('resource_') || fname.includes('resource');
+
+                // 리소스 CSV는 별도 처리 (time,container,cpu_percent,memory_mb)
+                if (isResource) {
+                    file.data.forEach(row => {
+                        const time = row.time;
+                        const container = row.container;
+                        const mem = parseFloat(row.memory_mb || 0);
+                        const cpu = parseFloat(row.cpu_percent || 0);
+                        if (time && container) {
+                            const timeClean = String(time).replace(/T/, ' ').substring(11, 19);
+                            resourceData.push({ time: timeClean, container, cpu, memory_mb: mem });
+                        }
+                    });
+                    return;
+                }
 
                 file.data.forEach(row => {
                     const rawVal = row.value;
@@ -786,6 +867,15 @@
                         filters.api.add(dataRow.api);
                         if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
                         tcApiMap[dataRow.tc].add(dataRow.api);
+                        // Cross-VUs 비교용: vus_group 수집
+                        const vg = row.vus_group || '';
+                        if (vg && vg !== 'null' && vg !== '') {
+                            detectedVusGroups.add(String(vg));
+                            if (!crossVusData[vg]) crossVusData[vg] = {};
+                            if (!crossVusData[vg][dataRow.tc]) crossVusData[vg][dataRow.tc] = {};
+                            if (!crossVusData[vg][dataRow.tc][dataRow.api]) crossVusData[vg][dataRow.tc][dataRow.api] = [];
+                            crossVusData[vg][dataRow.tc][dataRow.api].push(dataRow.value);
+                        }
                     } else if (isReqs) {
                         reqsData.push(dataRow);
                     } else if (isError) {
@@ -1176,6 +1266,239 @@
             renderTimingChart(blockedData, 'blockedChart', 'blocked-section', 'Blocked [커넥션 대기] (ms)');
             renderTimingChart(sendingData, 'sendingChart', 'sending-section', 'Sending [요청 전송] (ms)');
             renderTimingChart(receivingData, 'receivingChart', 'receiving-section', 'Receiving [응답 수신] (ms)');
+
+            // Cross-VUs Comparison Charts (2개 이상 VUs 그룹이 감지될 때만)
+            renderCrossVusCharts();
+
+            // Resource Monitoring Chart (cAdvisor 데이터)
+            renderResourceChart();
+        }
+
+        function renderCrossVusCharts() {
+            const vusKeys = [...detectedVusGroups].sort((a, b) => parseInt(a) - parseInt(b));
+            const show = vusKeys.length >= 2;
+
+            document.getElementById('cross-vus-section').style.display = show ? '' : 'none';
+            document.getElementById('cross-vus-avg-section').style.display = show ? '' : 'none';
+            document.getElementById('cross-vus-tps-section').style.display = show ? '' : 'none';
+
+            if (!show) return;
+
+            // 현재 선택된 TC 필터에서 첫 번째 TC 사용 (또는 전체 합산)
+            const activeTcs = [...activeFilters.tc];
+            const activeApis = [...activeFilters.api];
+
+            // API별 색상
+            const apiColors = { rest: '#3b82f6', graphql: '#ec4899', grpc: '#10b981', grpc_direct: '#10b981', grpc_envoy: '#a855f7' };
+            function getColor(api) {
+                for (const [k, v] of Object.entries(apiColors)) { if (api.includes(k)) return v; }
+                return '#64748b';
+            }
+
+            // 모든 TC를 합산하여 VUs별 API별 통계 계산
+            const allApis = new Set();
+            const p99Data = {}; // {vus: {api: value}}
+            const avgData = {};
+            const tpsData = {};
+
+            for (const vus of vusKeys) {
+                p99Data[vus] = {};
+                avgData[vus] = {};
+                tpsData[vus] = {};
+                const vusGroup = crossVusData[vus] || {};
+
+                for (const tc of activeTcs) {
+                    const tcData = vusGroup[tc] || {};
+                    for (const api of Object.keys(tcData)) {
+                        if (!activeApis.some(a => a === api)) continue;
+                        allApis.add(api);
+                        if (!p99Data[vus][api]) { p99Data[vus][api] = []; avgData[vus][api] = []; }
+                        p99Data[vus][api].push(...tcData[api]);
+                        avgData[vus][api].push(...tcData[api]);
+                    }
+                }
+
+                // p99.9와 avg 계산
+                for (const api of Object.keys(p99Data[vus])) {
+                    const vals = p99Data[vus][api].sort((a, b) => a - b);
+                    if (vals.length > 0) {
+                        const idx = Math.floor((vals.length - 1) * 0.999);
+                        p99Data[vus][api] = vals[idx];
+                        avgData[vus][api] = vals.reduce((s, v) => s + v, 0) / vals.length;
+                    } else {
+                        p99Data[vus][api] = 0;
+                        avgData[vus][api] = 0;
+                    }
+                }
+
+                // TPS: reqsData에서 계산
+                const vusReqs = reqsData.filter(d => activeTcs.includes(d.tc));
+                const timeSet = new Set(vusReqs.map(d => d.time));
+                const numSecs = Math.max(timeSet.size, 1);
+                for (const api of allApis) {
+                    const count = vusReqs.filter(d => d.api === api).length;
+                    tpsData[vus][api] = count > 0 ? count / numSecs / vusKeys.length : 0;
+                }
+            }
+
+            const apis = [...allApis].sort();
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#e2e8f0' : '#0f172a';
+            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+            function renderGroupedBar(chartId, dataMap, title, yLabel) {
+                if (charts[chartId]) charts[chartId].destroy();
+                const barWidth = 0.7 / apis.length;
+                const datasets = apis.map((api, i) => {
+                    const color = getColor(api);
+                    const offset = (i - (apis.length - 1) / 2) * barWidth;
+                    return {
+                        label: api.toUpperCase(),
+                        data: vusKeys.map(v => dataMap[v] && dataMap[v][api] ? dataMap[v][api] : 0),
+                        backgroundColor: color + '99',
+                        borderColor: color,
+                        borderWidth: 2,
+                        borderRadius: 4,
+                        barPercentage: 0.8,
+                        categoryPercentage: 0.85,
+                    };
+                });
+
+                const ctx = document.getElementById(chartId);
+                if (!ctx) return;
+                charts[chartId] = new Chart(ctx, {
+                    type: 'bar',
+                    data: { labels: vusKeys.map(v => v + ' VUs'), datasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        animation: chartAnimationEnabled ? { duration: 600 } : false,
+                        plugins: {
+                            legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } },
+                            title: { display: false },
+                        },
+                        scales: {
+                            x: { ticks: { color: textColor, font: { weight: 'bold' } }, grid: { color: gridColor } },
+                            y: { title: { display: true, text: yLabel, color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } },
+                        },
+                    }
+                });
+            }
+
+            renderGroupedBar('crossVusP99Chart', p99Data, 'p99.9 by VUs', 'p99.9 Latency (ms)');
+            renderGroupedBar('crossVusAvgChart', avgData, 'Avg Latency by VUs', 'Average Latency (ms)');
+            renderGroupedBar('crossVusTpsChart', tpsData, 'TPS by VUs', 'Throughput (TPS)');
+        }
+
+        function renderResourceChart() {
+            const memSection = document.getElementById('resource-mem-section');
+            const cpuSection = document.getElementById('resource-cpu-section');
+
+            if (resourceData.length === 0) {
+                if (memSection) memSection.style.display = 'none';
+                if (cpuSection) cpuSection.style.display = 'none';
+                return;
+            }
+            if (memSection) memSection.style.display = '';
+            if (cpuSection) cpuSection.style.display = '';
+
+            const containers = [...new Set(resourceData.map(d => d.container))].sort();
+            const containerColors = {
+                benchmark_rest: '#3b82f6', benchmark_graphql: '#ec4899',
+                benchmark_grpc: '#10b981', benchmark_db: '#f59e0b',
+                benchmark_envoy: '#a855f7'
+            };
+            const isDark = document.body.getAttribute('data-theme') === 'dark';
+            const textColor = isDark ? '#e2e8f0' : '#0f172a';
+            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
+
+            // ── Memory 차트 ──
+            const memTimeline = {};
+            for (const d of resourceData) {
+                if (!memTimeline[d.time]) memTimeline[d.time] = {};
+                if (!memTimeline[d.time][d.container]) memTimeline[d.time][d.container] = { sum: 0, count: 0 };
+                memTimeline[d.time][d.container].sum += d.memory_mb;
+                memTimeline[d.time][d.container].count++;
+            }
+            const memTimes = Object.keys(memTimeline).sort();
+
+            const memDatasets = containers.map(c => {
+                const color = containerColors[c] || '#64748b';
+                return {
+                    label: c.replace('benchmark_', '').toUpperCase(),
+                    data: memTimes.map(t => { const s = memTimeline[t]?.[c]; return s ? (s.sum / s.count).toFixed(1) : null; }),
+                    borderColor: color, backgroundColor: color + '15', borderWidth: 2,
+                    tension: 0.15, pointRadius: 0, fill: true
+                };
+            });
+
+            if (charts['resourceMemChart']) charts['resourceMemChart'].destroy();
+            const memCtx = document.getElementById('resourceMemChart');
+            if (memCtx) {
+                charts['resourceMemChart'] = new Chart(memCtx, {
+                    type: 'line', data: { labels: memTimes, datasets: memDatasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        animation: chartAnimationEnabled ? { duration: 600 } : false,
+                        plugins: { legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } } },
+                        scales: {
+                            x: { ticks: { color: textColor, maxTicksLimit: 12, maxRotation: 45 }, grid: { color: gridColor } },
+                            y: { title: { display: true, text: 'Memory (MB)', color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } }
+                        }
+                    }
+                });
+            }
+
+            // ── CPU 사용률 차트 (인접 샘플 delta 기반) ──
+            // cpu_ns는 누적값이므로 (현재 - 이전) / (시간차 ns) * 100 = %
+            const INTERVAL_NS = CADVISOR_INTERVAL_SEC * 1e9; // 수집 간격 추정
+            const sorted = [...resourceData].sort((a, b) => a.time < b.time ? -1 : 1);
+            const prevCpu = {}; // container → 이전 cpu_ns
+            const cpuTimeline = {};
+
+            for (const d of sorted) {
+                const prev = prevCpu[d.container];
+                if (prev !== undefined && d.cpu > prev) {
+                    const deltaNs = d.cpu - prev;
+                    // 수집 간격 2초 = 2e9 ns, CPU 코어 1개 기준 100%
+                    const pct = (deltaNs / 2e9) * 100;
+                    if (!cpuTimeline[d.time]) cpuTimeline[d.time] = {};
+                    cpuTimeline[d.time][d.container] = Math.min(pct, 400); // 멀티코어라 400%까지 가능
+                }
+                prevCpu[d.container] = d.cpu;
+            }
+
+            const cpuTimes = Object.keys(cpuTimeline).sort();
+            if (cpuTimes.length < 2) {
+                if (cpuSection) cpuSection.style.display = 'none';
+                return;
+            }
+
+            const cpuDatasets = containers.map(c => {
+                const color = containerColors[c] || '#64748b';
+                return {
+                    label: c.replace('benchmark_', '').toUpperCase(),
+                    data: cpuTimes.map(t => cpuTimeline[t]?.[c]?.toFixed(1) ?? null),
+                    borderColor: color, backgroundColor: color + '15', borderWidth: 2,
+                    tension: 0.15, pointRadius: 0, fill: true
+                };
+            });
+
+            if (charts['resourceCpuChart']) charts['resourceCpuChart'].destroy();
+            const cpuCtx = document.getElementById('resourceCpuChart');
+            if (cpuCtx) {
+                charts['resourceCpuChart'] = new Chart(cpuCtx, {
+                    type: 'line', data: { labels: cpuTimes, datasets: cpuDatasets },
+                    options: {
+                        responsive: true, maintainAspectRatio: false,
+                        animation: chartAnimationEnabled ? { duration: 600 } : false,
+                        plugins: { legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } } },
+                        scales: {
+                            x: { ticks: { color: textColor, maxTicksLimit: 12, maxRotation: 45 }, grid: { color: gridColor } },
+                            y: { title: { display: true, text: 'CPU Usage (%)', color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } }
+                        }
+                    }
+                });
+            }
         }
 
         function renderErrorAnalysis() {
