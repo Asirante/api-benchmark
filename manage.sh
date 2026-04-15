@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v9.0 - 리소스 모니터링 + 자동 파이프라인)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v10.0 - docker stats 기반 리소스 모니터링)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -14,9 +14,8 @@ BACKUP_DIR="./influxdb_backups"
 CSV_DIR="./csv_results"
 RESOURCE_DIR="./resource_logs"
 
-# cAdvisor 설정
-CADVISOR_URL="http://localhost:8888"
-CADVISOR_INTERVAL=2
+# 리소스 모니터링 설정 (docker stats 사용)
+RESOURCE_INTERVAL=2
 RESOURCE_CONTAINERS=("benchmark_rest" "benchmark_graphql" "benchmark_grpc" "benchmark_db" "benchmark_envoy")
 
 # 모든 추출 대상 Metric 목록
@@ -44,53 +43,48 @@ run_influx_query() {
     docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "$output_file"
 }
 
-# ----------------------------------------------------------------------------
-# [리소스 모니터링 함수]
-# ----------------------------------------------------------------------------
-
-is_cadvisor_available() {
-    curl -s --max-time 2 "${CADVISOR_URL}/api/v1.3/machine" > /dev/null 2>&1
+# 카운트다운 함수
+countdown() {
+    local secs=$1
+    local msg=$2
+    echo -n ">>> [$msg] ${secs}초 대기 중: "
+    while [ $secs -gt 0 ]; do
+        echo -ne "$secs "
+        sleep 1
+        : $((secs--))
+    done
+    echo "<<<"
+    echo ""
 }
+
+# ----------------------------------------------------------------------------
+# [리소스 모니터링 함수 - Docker Stats 버전]
+# ----------------------------------------------------------------------------
 
 start_resource_collector() {
     local output_csv=$1
     
-    if ! is_cadvisor_available; then
-        echo "  [리소스] cAdvisor 미감지 — 수집 건너뜀"
-        echo ""
-        return
-    fi
-
     mkdir -p "$RESOURCE_DIR"
-    echo "time,container,cpu_ns,memory_mb" > "$output_csv"
+    # 헤더 작성: 시간, 컨테이너명, CPU사용률(%), 메모리사용량
+    echo "time,container,cpu_perc,mem_usage" > "$output_csv"
     
+    # 백그라운드에서 docker stats 실행 루프
     (
         trap "exit 0" SIGTERM SIGINT
         while true; do
             local ts=$(date '+%Y-%m-%dT%H:%M:%S')
-            for container in "${RESOURCE_CONTAINERS[@]}"; do
-                local stats=$(curl -s --max-time 2 "${CADVISOR_URL}/api/v1.3/docker/${container}?count=1" 2>/dev/null)
-                [ -z "$stats" ] || [ "$stats" = "null" ] || [ "$stats" = "{}" ] && continue
-                local parsed=$(python3 -c "
-import json, sys
-try:
-    data = json.loads(sys.stdin.read())
-    key = list(data.keys())[0]
-    s = data[key]['stats'][-1]
-    cpu = s['cpu']['usage']['total']
-    mem = s['memory']['usage']
-    print(f'{cpu},{mem / 1048576:.1f}')
-except:
-    pass
-" <<< "$stats" 2>/dev/null)
-                [ -n "$parsed" ] && echo "${ts},${container},${parsed}" >> "$output_csv"
+            # 지정된 컨테이너들의 스냅샷을 한 번에 획득
+            docker stats --no-stream --format "{{.Name}},{{.CPUPerc}},{{.MemUsage}}" "${RESOURCE_CONTAINERS[@]}" 2>/dev/null | while read line; do
+                if [ -n "$line" ]; then
+                    echo "${ts},${line}" >> "$output_csv"
+                fi
             done
-            sleep "$CADVISOR_INTERVAL"
+            sleep "$RESOURCE_INTERVAL"
         done
-    ) &
+    ) </dev/null >/dev/null 2>&1 &
     
     local pid=$!
-    echo "  [리소스] 수집 시작 (PID: $pid)"
+    echo "  [리소스] docker stats 수집 시작 (PID: $pid)" >&2
     echo $pid
 }
 
@@ -110,12 +104,12 @@ stop_resource_collector() {
 # ----------------------------------------------------------------------------
 
 init_influx_db() {
-    echo "[진행] InfluxDB 확인..."
+    echo "[진행] InfluxDB 상태 확인 중..."
     if ! docker ps | grep -q benchmark_influxdb; then
         echo "[에러] benchmark_influxdb가 실행 중이지 않습니다."; exit 1
     fi
-    docker exec benchmark_influxdb influx -execute "CREATE DATABASE $INFLUX_DB_NAME"
-    [ $? -eq 0 ] && echo "[완료] DB 준비 완료" || { echo "[에러] DB 생성 실패"; exit 1; }
+    docker exec benchmark_influxdb influx -execute "CREATE DATABASE $INFLUX_DB_NAME" > /dev/null 2>&1
+    [ $? -eq 0 ] && echo "[완료] InfluxDB 준비 완료" || { echo "[에러] DB 생성 실패"; exit 1; }
 }
 
 run_k6() {
@@ -125,13 +119,13 @@ run_k6() {
     local session_id=${4:-$GLOBAL_TIMESTAMP}
 
     echo "------------------------------------------------------------"
-    echo "[실행] $test_type | $script_file | VUs: $vus"
+    echo " 🚀 [실행] $test_type | $script_file | VUs: $vus"
     echo "------------------------------------------------------------"
 
     local resource_file="${RESOURCE_DIR}/resource_${test_type}_${vus}_${session_id}.csv"
     local resource_pid=$(start_resource_collector "$resource_file")
 
-    docker run --rm -i \
+    docker run --rm -it \
       --ulimit nofile=65535:65535 \
       -v $(pwd):/app -w /app \
       --network api-benchmark_default \
@@ -151,34 +145,34 @@ run_benchmark_suite() {
     local vus=$1
     local session_id=${2:-$GLOBAL_TIMESTAMP}
 
-    echo -e "\n>>> [1/4] REST <<<"
+    echo -e "\n>>> [1/4] REST API 테스트 시작 <<<"
     run_k6 "bench_rest.js" "standard" "$vus" "$session_id"
-    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+    countdown 30 "REST 종료 후 쿨다운"
 
-    echo -e "\n>>> [2/4] GraphQL <<<"
+    echo -e "\n>>> [2/4] GraphQL API 테스트 시작 <<<"
     run_k6 "bench_gql.js" "standard" "$vus" "$session_id"
-    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+    countdown 30 "GraphQL 종료 후 쿨다운"
 
-    echo -e "\n>>> [3/4] gRPC Direct <<<"
+    echo -e "\n>>> [3/4] gRPC Direct 테스트 시작 <<<"
     run_k6 "bench_grpc.js" "standard" "$vus" "$session_id"
-    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+    countdown 30 "gRPC 종료 후 쿨다운"
 
-    echo -e "\n>>> [4/4] gRPC Envoy (TC9) <<<"
+    echo -e "\n>>> [4/4] gRPC Envoy (TC9) 테스트 시작 <<<"
     run_k6 "bench_grpc_envoy.js" "proxy_overhead" "$vus" "$session_id"
-    sleep 5
+    countdown 5 "세트 종료 마무리"
 }
 
 do_export_data() {
     local prefix=${1:-"k6_backup"}
     local session_id=${2:-$GLOBAL_TIMESTAMP}
-    echo "[진행] InfluxDB 백업..."
+    echo "[진행] InfluxDB 데이터 백업 중..."
     mkdir -p $BACKUP_DIR
     local name="${prefix}_${session_id}"
     local path="/var/lib/influxdb/${name}"
     docker exec benchmark_influxdb influxd backup -portable -database $INFLUX_DB_NAME $path > /dev/null
     docker cp benchmark_influxdb:$path "${BACKUP_DIR}/${name}"
     docker exec benchmark_influxdb rm -rf $path
-    echo "[완료] → ${BACKUP_DIR}/${name}"
+    echo "[완료] 백업 저장됨 → ${BACKUP_DIR}/${name}"
 }
 
 do_export_csv() {
@@ -186,38 +180,37 @@ do_export_csv() {
     local session_id=${2:-$GLOBAL_TIMESTAMP}
     local dir="${CSV_DIR}/export_${session_id}"
     mkdir -p "$dir"
-    print_header " [CSV 추출] → $dir"
+    print_header " [CSV 데이터 추출] → $dir"
 
     local condition=""
     case "$mode" in
-        current) echo "  범위: Session $session_id"; condition="WHERE \"session_id\"='${session_id}'" ;;
-        all|"") echo "  범위: 전체" ;;
-        *) echo "  범위: VUs=$mode"; condition="WHERE \"vus_group\"='${mode}'" ;;
+        current) echo "  범위: 현재 Session ($session_id)"; condition="WHERE \"session_id\"='${session_id}'" ;;
+        all|"") echo "  범위: 전체 데이터" ;;
+        *) echo "  범위: VUs=$mode 그룹"; condition="WHERE \"vus_group\"='${mode}'" ;;
     esac
 
     for metric in "${METRICS[@]}"; do
-        echo "  - [${metric}]"
+        echo "  - 추출 중: [${metric}]"
         local q="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         [ "$metric" == "vus" ] && q="SELECT \"time\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         run_influx_query "$q" "${dir}/${metric}.csv"
-        [ ! -s "${dir}/${metric}.csv" ] || [ $(wc -l < "${dir}/${metric}.csv") -le 1 ] && echo "    (없음)"
+        [ ! -s "${dir}/${metric}.csv" ] || [ $(wc -l < "${dir}/${metric}.csv") -le 1 ] && echo "    (데이터 없음)"
     done
 
-    # 리소스 CSV 복사
     if [ -d "$RESOURCE_DIR" ]; then
         local rc=0
         for rf in "$RESOURCE_DIR"/resource_*_${session_id}.csv; do
             [ ! -f "$rf" ] && continue
             cp "$rf" "${dir}/"; rc=$((rc + 1))
         done
-        [ $rc -gt 0 ] && echo "  - [리소스] ${rc}개 파일 복사"
+        [ $rc -gt 0 ] && echo "  - [리소스] ${rc}개의 리소스 로그 파일 복사 완료"
     fi
-    echo " [완료] $(ls -1 "$dir"/*.csv 2>/dev/null | wc -l)개 파일"
+    echo " [완료] 총 $(ls -1 "$dir"/*.csv 2>/dev/null | wc -l)개 파일 추출 성공"
 }
 
 do_restore_all() {
-    print_header " [복원] 백업 → InfluxDB"
-    [ ! -d "$BACKUP_DIR" ] && { echo "[에러] 백업 없음"; return 1; }
+    print_header " [복원] 백업 파일 → InfluxDB"
+    [ ! -d "$BACKUP_DIR" ] && { echo "[에러] 백업 디렉토리가 없습니다."; return 1; }
     local ok=0 fail=0
     for d in "$BACKUP_DIR"/*/; do
         [ ! -d "$d" ] && continue
@@ -225,7 +218,7 @@ do_restore_all() {
         docker exec benchmark_influxdb influxd restore -portable -db "$INFLUX_DB_NAME" "/var/lib/influxdb/restore_temp" >/dev/null 2>&1 && ok=$((ok+1)) || fail=$((fail+1))
         docker exec benchmark_influxdb rm -rf "/var/lib/influxdb/restore_temp"
     done
-    echo " 성공 ${ok} / 실패 ${fail}"
+    echo " 복원 결과: 성공 ${ok} / 실패 ${fail}"
 }
 
 patch_missing_csv() {
@@ -246,7 +239,7 @@ patch_missing_csv() {
 }
 
 do_export_full() {
-    print_header " [전체 추출] 복원 + 보충"
+    print_header " [전체 추출] 데이터 복원 및 보충 작업"
     do_restore_all
     local patched=0 skipped=0
     if [ -d "$CSV_DIR" ]; then
@@ -260,12 +253,12 @@ do_export_full() {
             if $missing; then patch_missing_csv "$csv_dir"; patched=$((patched+1)); else skipped=$((skipped+1)); fi
         done
     fi
-    echo " 보충 ${patched} / 완료 ${skipped}"
+    echo " 누락분 보충 ${patched}건 / 정상 스킵 ${skipped}건"
 }
 
 do_package() {
-    print_header " [패키징] VUs별 정리 + ZIP"
-    [ ! -d "$CSV_DIR" ] && { echo "[에러] csv_results 없음"; return 1; }
+    print_header " [패키징] 결과물 VUs별 정리 및 ZIP 압축"
+    [ ! -d "$CSV_DIR" ] && { echo "[에러] csv_results 디렉토리가 없습니다."; return 1; }
 
     local pkg="${CSV_DIR}/packaged_${GLOBAL_TIMESTAMP}"
     mkdir -p "$pkg"
@@ -288,27 +281,26 @@ do_package() {
         fi
         local base="VUs_${vus_label}${test_type}" final="$base" n=1
         while [ -d "${pkg}/${final}" ]; do final="${base}_${n}"; n=$((n+1)); done
-        echo "  $(basename $csv_dir) → ${final}"
+        echo "  - 정리 중: $(basename $csv_dir) → ${final}"
         cp -r "$csv_dir" "${pkg}/${final}"
         count=$((count + 1))
     done
 
-    # 리소스 로그 포함
     if [ -d "$RESOURCE_DIR" ] && ls "$RESOURCE_DIR"/*.csv 1>/dev/null 2>&1; then
         mkdir -p "${pkg}/_resource_logs"
         cp "$RESOURCE_DIR"/*.csv "${pkg}/_resource_logs/"
-        echo "  리소스 로그 → _resource_logs/"
+        echo "  - 리소스 로그 폴더 병합 완료"
     fi
 
-    [ $count -eq 0 ] && { echo "대상 없음"; rm -rf "$pkg"; return 0; }
+    [ $count -eq 0 ] && { echo "패키징할 대상이 없습니다."; rm -rf "$pkg"; return 0; }
 
     if command -v zip &>/dev/null; then
         local zip_name="benchmark_results_${GLOBAL_TIMESTAMP}.zip"
         cd "$pkg" && zip -r "../${zip_name}" . -q && cd - >/dev/null
         rm -rf "$pkg"
-        echo " [완료] ${count}세트 → ${CSV_DIR}/${zip_name}"
+        echo " [완료] ${count}개 세트 압축 완료 → ${CSV_DIR}/${zip_name}"
     else
-        echo " [완료] ${count}세트 → ${pkg} (zip 미설치)"
+        echo " [완료] ${count}개 세트 정리 완료 → ${pkg} (zip 명령어가 없어 압축은 생략됨)"
     fi
 }
 
@@ -334,9 +326,9 @@ case "$COMMAND" in
     init_influx_db
     print_header " [격리 테스트] REST → GQL → gRPC (VUs: ${VUS_ARG})"
     run_k6 "bench_rest.js" "standard" "$VUS_ARG"
-    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+    countdown 30 "REST 종료 후 쿨다운"
     run_k6 "bench_gql.js" "standard" "$VUS_ARG"
-    echo ">>> [쿨다운] 30초 <<<"; sleep 30
+    countdown 30 "GraphQL 종료 후 쿨다운"
     run_k6 "bench_grpc.js" "standard" "$VUS_ARG"
     ;;
 
@@ -382,17 +374,17 @@ case "$COMMAND" in
         do_export_data "cycle_vus${VUS_TARGET}" "$CYCLE_TS"
         do_export_csv "current" "$CYCLE_TS"
 
-        [ "$CUR" -lt "$TOTAL" ] && { echo ">>> [세트 간 쿨다운] 60초 <<<"; sleep 60; }
+        [ "$CUR" -lt "$TOTAL" ] && countdown 60 "다음 VUs 세트 진행 전 쿨다운"
     done
 
     echo ""
-    print_header " 사이클 완료! 자동 정리..."
+    print_header " 🏁 사이클 완료! 데이터 정리 및 패키징 중..."
     do_export_full
     do_package
 
     END_TIME=$(date +%s)
     ELAPSED=$(( (END_TIME - START_TIME) / 60 ))
-    print_header " 전체 소요: ${ELAPSED}분 | ${TOTAL}세트 x 4 = $((TOTAL*4))회 완료"
+    print_header " 🎉 전체 소요: ${ELAPSED}분 | ${TOTAL}세트 x 4 = $((TOTAL*4))회 완료"
     ;;
 
   export) do_export_data "k6_manual" "$GLOBAL_TIMESTAMP" ;;
@@ -421,10 +413,8 @@ case "$COMMAND" in
     echo " [관리]"
     echo "  start / stop / restart / clean / logs"
     echo ""
-    echo " [예시]"
-    echo "  ./manage.sh test-all-cycle 100 300 500 1000 1500 2000"
-    echo "  → 6세트 x 4프로토콜 = 24회 테스트 → CSV 추출 → ZIP 패키징"
-    echo "  → 리소스 모니터링 자동 (cAdvisor가 떠 있으면)"
+    echo " [테스트]"
+    echo "  ./manage.sh test-all-cycle 50 100 300 500 1000 1500 2000"
     echo "----------------------------------------------------------------------"
     exit 1
     ;;
