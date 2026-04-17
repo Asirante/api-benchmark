@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v11.4 - 1~9 All-in-One 벤치마크 스크립트 단일화)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v12.0 - 동적 스파이크, 폴더 덮어쓰기 완비)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -112,7 +112,7 @@ run_k6() {
     
     local resource_pid=$(start_resource_collector "$resource_file")
 
-    # TEST_MODE 환경 변수를 k6 컨테이너에 주입하여 K6 내부에서 옵션 분기 처리 (핵심)
+    # TEST_MODE 환경 변수를 k6 컨테이너에 주입하여 내부에서 옵션 동적 분기
     docker run --rm -it \
       --ulimit nofile=65535:65535 \
       -v $(pwd):/app -w /app \
@@ -152,26 +152,26 @@ run_standard_and_proxy() {
     countdown 20 "Proxy 세트 완료"
 }
 
-# [공통] Spike (TC8) 실행 그룹 (각 벤치 파일에 spike 파라미터를 넘겨 실행)
+# [공통] Spike (TC8) 실행 그룹 (인자로 전달받은 spike_vus를 사용)
 run_spike_suite() {
     local session_id=${1:-$GLOBAL_TIMESTAMP}
-    local spike_vus="max_5k"
+    local spike_vus=${2:-2000} # 인자로 받은 최대치를 타겟으로 사용
 
-    print_header " [Spike Test] TC8 - 개별 아키텍처 최대 5K 극한 부하 시작"
+    print_header " [Spike Test] TC8 - 개별 아키텍처 최대 ${spike_vus} 극한 부하 시작"
     
-    echo -e "\n>>> [Spike 1/4] REST API (TC1~7 under TC8 load) <<<"
+    echo -e "\n>>> [Spike 1/4] REST API (TC8 Load) <<<"
     run_k6 "bench_rest.js" "spike" "$spike_vus" "$session_id"
     countdown 30 "REST Spike 쿨다운"
 
-    echo -e "\n>>> [Spike 2/4] GraphQL API (TC1~7 under TC8 load) <<<"
+    echo -e "\n>>> [Spike 2/4] GraphQL API (TC8 Load) <<<"
     run_k6 "bench_gql.js" "spike" "$spike_vus" "$session_id"
     countdown 30 "GraphQL Spike 쿨다운"
 
-    echo -e "\n>>> [Spike 3/4] gRPC Direct (TC1~7 under TC8 load) <<<"
+    echo -e "\n>>> [Spike 3/4] gRPC Direct (TC8 Load) <<<"
     run_k6 "bench_grpc.js" "spike" "$spike_vus" "$session_id"
     countdown 30 "gRPC Spike 쿨다운"
 
-    echo -e "\n>>> [Spike 4/4] gRPC Envoy (TC9 under TC8 load) <<<"
+    echo -e "\n>>> [Spike 4/4] gRPC Envoy (TC8 Load) <<<"
     run_k6 "bench_grpc_envoy.js" "spike" "$spike_vus" "$session_id"
     countdown 10 "Spike 세트 완료"
 }
@@ -275,6 +275,7 @@ do_package() {
 
     local count=0
 
+    # export_ 로 시작하는 임시 폴더들을 VUs_ 형태의 직관적인 폴더명으로 변환
     for csv_dir in "$CSV_DIR"/export_*/; do
         [ ! -d "$csv_dir" ] && continue
         local vus_file="${csv_dir}/vus.csv" vus_label="unknown" test_type=""
@@ -292,10 +293,11 @@ do_package() {
             fi
         fi
         
-        # 대상 폴더명 (예: VUs_50_standard, VUs_max_5k_spike)
+        # 대상 폴더명 결정 (예: VUs_50_standard)
         local final_dir="${CSV_DIR}/VUs_${vus_label}${test_type}"
         echo "  - 정리 중: $(basename "$csv_dir") → $(basename "$final_dir")"
         
+        # 덮어쓰기 로직: 기존 폴더가 존재하면 삭제
         if [ -d "$final_dir" ]; then
             rm -rf "$final_dir"
         fi
@@ -305,7 +307,7 @@ do_package() {
     done
 
     [ $count -eq 0 ] && { echo "정리할 데이터가 없습니다."; return 0; }
-    echo " [완료] ${count}개 폴더 정리 완료 (폴더 덮어쓰기 적용됨)"
+    echo " [완료] ${count}개 폴더 정리 완료 (압축 제외, 덮어쓰기 완료)"
 }
 
 # ----------------------------------------------------------------------------
@@ -330,7 +332,9 @@ case "$COMMAND" in
 
   test-spike)
     init_influx_db
-    run_spike_suite "$GLOBAL_TIMESTAMP"
+    # test-spike 단독 실행 시 입력된 VUs의 2배를 극한 스파이크로 사용
+    SPIKE_MAX=$((VUS_ARG * 2))
+    run_spike_suite "$GLOBAL_TIMESTAMP" "$SPIKE_MAX"
     
     do_export_data "spike_backup" "$GLOBAL_TIMESTAMP"
     do_export_csv "current" "$GLOBAL_TIMESTAMP"
@@ -344,9 +348,10 @@ case "$COMMAND" in
     # 1. Standard + Proxy (TC1~7, TC9)
     run_standard_and_proxy "$VUS_ARG" "$GLOBAL_TIMESTAMP"
     
-    # 2. Spike (TC8)
+    # 2. Spike (TC8) - 기본 입력된 VUs의 2배로 자동 설정
+    SPIKE_MAX=$((VUS_ARG * 2))
     SPIKE_TS=$(date +%Y%m%d_%H%M%S)
-    run_spike_suite "$SPIKE_TS"
+    run_spike_suite "$SPIKE_TS" "$SPIKE_MAX"
 
     # 3. 데이터 추출 및 패키징
     do_export_data "all_backup" "$GLOBAL_TIMESTAMP"
@@ -362,9 +367,18 @@ case "$COMMAND" in
     init_influx_db
     TOTAL=$(echo "$VUS_LIST" | wc -w)
     CUR=0
+    MAX_VU=0
     START_TIME=$(date +%s)
 
-    print_header " [풀 사이클] VUs: $VUS_LIST (${TOTAL}세트) + 마지막 스파이크"
+    # 전달받은 VUs 중 가장 큰 값 찾기
+    for v in $VUS_LIST; do
+        if [ "$v" -gt "$MAX_VU" ]; then MAX_VU=$v; fi
+    done
+
+    # 스파이크 한계치를 입력된 최대 VUs의 2배로 자동 설정
+    SPIKE_MAX=$((MAX_VU * 2))
+
+    print_header " [풀 사이클] VUs: $VUS_LIST (${TOTAL}세트) + 스파이크 (최대 ${SPIKE_MAX})"
 
     for VUS_TARGET in $VUS_LIST; do
         CUR=$((CUR + 1))
@@ -379,9 +393,9 @@ case "$COMMAND" in
         [ "$CUR" -lt "$TOTAL" ] && countdown 60 "다음 VUs 세트 진행 전 쿨다운"
     done
 
-    echo -e "\n========== [최종 단계] TC8 스파이크 극한 부하 테스트 =========="
+    echo -e "\n========== [최종 단계] TC8 스파이크 극한 부하 테스트 (Max: ${SPIKE_MAX}) =========="
     SPIKE_TS=$(date +%Y%m%d_%H%M%S)
-    run_spike_suite "$SPIKE_TS"
+    run_spike_suite "$SPIKE_TS" "$SPIKE_MAX"
     
     do_export_data "cycle_spike" "$SPIKE_TS"
     do_export_csv "current" "$SPIKE_TS"
@@ -410,9 +424,9 @@ case "$COMMAND" in
     echo ""
     echo " [테스트]"
     echo "  test [VUs]                   : TC1~7, TC9 격리 테스트"
-    echo "  test-spike                   : TC8 환경에서 4개 아키텍처 스파이크"
-    echo "  test-all [VUs]               : 1~9번 모든 시나리오 한 번에 실행 (추천 ★)"
-    echo "  test-all-cycle 50 100 ..     : 다중 VUs 점진적 부하 + 마지막 스파이크 1회"
+    echo "  test-spike [VUs]             : 각 프로토콜별 TC8 스파이크 단독 (자동 2배 부하)"
+    echo "  test-all [VUs]               : 1~9번 모든 시나리오 한 번에 실행"
+    echo "  test-all-cycle 50 100 ..     : 다중 VUs 점진적 부하 + 마지막 스파이크 (자동 2배) (추천 ★)"
     echo ""
     echo " [데이터 & 관리]"
     echo "  export / export-csv / export-full / restore-all / package"
