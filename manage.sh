@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v11.1 - 기본 기능 복구 및 스파이크/패키징 고도화)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v11.4 - 1~9 All-in-One 벤치마크 스크립트 단일화)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -107,16 +107,18 @@ run_k6() {
     echo " 🚀 [실행] $test_type | $script_file | VUs: $vus"
     echo "------------------------------------------------------------"
 
-    local proto_name=$(echo "$script_file" | sed -E 's/bench_(.*)\.js/\1/' | sed 's/benchmark_tc8.js/spike/')
+    local proto_name=$(echo "$script_file" | sed -E 's/bench_(.*)\.js/\1/')
     local resource_file="${RESOURCE_DIR}/resource_${test_type}_${proto_name}_${vus}_${session_id}.csv"
     
     local resource_pid=$(start_resource_collector "$resource_file")
 
+    # TEST_MODE 환경 변수를 k6 컨테이너에 주입하여 K6 내부에서 옵션 분기 처리 (핵심)
     docker run --rm -it \
       --ulimit nofile=65535:65535 \
       -v $(pwd):/app -w /app \
       --network api-benchmark_default \
       -e VUS=$vus \
+      -e TEST_MODE="$test_type" \
       grafana/k6 run \
       --out influxdb=$INFLUX_URL/$INFLUX_DB_NAME \
       --tag run_id="${test_type}_${vus}_${session_id}" \
@@ -128,25 +130,50 @@ run_k6() {
     stop_resource_collector "$resource_pid" "$resource_file"
 }
 
-run_benchmark_suite() {
+# [공통] Standard (TC1~7) 및 Proxy (TC9) 실행 그룹
+run_standard_and_proxy() {
     local vus=$1
     local session_id=${2:-$GLOBAL_TIMESTAMP}
 
-    echo -e "\n>>> [1/4] REST API 테스트 시작 <<<"
+    echo -e "\n>>> [1/4] REST API (TC1~7) <<<"
     run_k6 "bench_rest.js" "standard" "$vus" "$session_id"
-    countdown 30 "REST 종료 후 쿨다운"
+    countdown 20 "REST 완료"
 
-    echo -e "\n>>> [2/4] GraphQL API 테스트 시작 <<<"
+    echo -e "\n>>> [2/4] GraphQL API (TC1~7) <<<"
     run_k6 "bench_gql.js" "standard" "$vus" "$session_id"
-    countdown 30 "GraphQL 종료 후 쿨다운"
+    countdown 20 "GraphQL 완료"
 
-    echo -e "\n>>> [3/4] gRPC Direct 테스트 시작 <<<"
+    echo -e "\n>>> [3/4] gRPC Direct (TC1~7) <<<"
     run_k6 "bench_grpc.js" "standard" "$vus" "$session_id"
-    countdown 30 "gRPC 종료 후 쿨다운"
+    countdown 20 "gRPC 완료"
 
-    echo -e "\n>>> [4/4] gRPC Envoy (TC9) 테스트 시작 <<<"
+    echo -e "\n>>> [4/4] gRPC Envoy (TC9) <<<"
     run_k6 "bench_grpc_envoy.js" "proxy_overhead" "$vus" "$session_id"
-    countdown 5 "세트 종료 마무리"
+    countdown 20 "Proxy 세트 완료"
+}
+
+# [공통] Spike (TC8) 실행 그룹 (각 벤치 파일에 spike 파라미터를 넘겨 실행)
+run_spike_suite() {
+    local session_id=${1:-$GLOBAL_TIMESTAMP}
+    local spike_vus="max_5k"
+
+    print_header " [Spike Test] TC8 - 개별 아키텍처 최대 5K 극한 부하 시작"
+    
+    echo -e "\n>>> [Spike 1/4] REST API (TC1~7 under TC8 load) <<<"
+    run_k6 "bench_rest.js" "spike" "$spike_vus" "$session_id"
+    countdown 30 "REST Spike 쿨다운"
+
+    echo -e "\n>>> [Spike 2/4] GraphQL API (TC1~7 under TC8 load) <<<"
+    run_k6 "bench_gql.js" "spike" "$spike_vus" "$session_id"
+    countdown 30 "GraphQL Spike 쿨다운"
+
+    echo -e "\n>>> [Spike 3/4] gRPC Direct (TC1~7 under TC8 load) <<<"
+    run_k6 "bench_grpc.js" "spike" "$spike_vus" "$session_id"
+    countdown 30 "gRPC Spike 쿨다운"
+
+    echo -e "\n>>> [Spike 4/4] gRPC Envoy (TC9 under TC8 load) <<<"
+    run_k6 "bench_grpc_envoy.js" "spike" "$spike_vus" "$session_id"
+    countdown 10 "Spike 세트 완료"
 }
 
 do_export_data() {
@@ -248,7 +275,6 @@ do_package() {
 
     local count=0
 
-    # export_ 로 시작하는 임시 폴더들을 VUs_ 형태의 직관적인 폴더명으로 변환
     for csv_dir in "$CSV_DIR"/export_*/; do
         [ ! -d "$csv_dir" ] && continue
         local vus_file="${csv_dir}/vus.csv" vus_label="unknown" test_type=""
@@ -266,11 +292,10 @@ do_package() {
             fi
         fi
         
-        # 최종 대상 폴더 (예: csv_results/VUs_50_standard)
+        # 대상 폴더명 (예: VUs_50_standard, VUs_max_5k_spike)
         local final_dir="${CSV_DIR}/VUs_${vus_label}${test_type}"
         echo "  - 정리 중: $(basename "$csv_dir") → $(basename "$final_dir")"
         
-        # 기존에 같은 VUs 폴더가 있다면 과감히 삭제 후 덮어쓰기
         if [ -d "$final_dir" ]; then
             rm -rf "$final_dir"
         fi
@@ -280,7 +305,7 @@ do_package() {
     done
 
     [ $count -eq 0 ] && { echo "정리할 데이터가 없습니다."; return 0; }
-    echo " [완료] ${count}개 세트 정리 완료 (압축 제외됨)"
+    echo " [완료] ${count}개 폴더 정리 완료 (폴더 덮어쓰기 적용됨)"
 }
 
 # ----------------------------------------------------------------------------
@@ -300,59 +325,74 @@ case "$COMMAND" in
 
   test)
     init_influx_db
-    run_k6 "bench_rest.js" "standard" "$VUS_ARG"
-    countdown 30 "REST 종료 후 쿨다운"
-    run_k6 "bench_gql.js" "standard" "$VUS_ARG"
-    countdown 30 "GraphQL 종료 후 쿨다운"
-    run_k6 "bench_grpc.js" "standard" "$VUS_ARG"
-    ;;
-
-  test-proxy)
-    init_influx_db
-    run_k6 "bench_grpc_envoy.js" "proxy_overhead" "$VUS_ARG"
+    run_standard_and_proxy "$VUS_ARG" "$GLOBAL_TIMESTAMP"
     ;;
 
   test-spike)
     init_influx_db
-    print_header " [스파이크 테스트] TC8 - 최대 5K 극한 부하"
-    run_k6 "benchmark_tc8.js" "spike" "max_5k" "$GLOBAL_TIMESTAMP"
+    run_spike_suite "$GLOBAL_TIMESTAMP"
     
-    # 다른 명령어와 동일하게 추출 및 폴더 덮어쓰기 정리 진행
     do_export_data "spike_backup" "$GLOBAL_TIMESTAMP"
     do_export_csv "current" "$GLOBAL_TIMESTAMP"
     do_package
     ;;
 
+  test-all)
+    init_influx_db
+    print_header " [전체 통합 테스트] 1~9번 모든 테스트 연속 실행 (VUs: $VUS_ARG)"
+    
+    # 1. Standard + Proxy (TC1~7, TC9)
+    run_standard_and_proxy "$VUS_ARG" "$GLOBAL_TIMESTAMP"
+    
+    # 2. Spike (TC8)
+    SPIKE_TS=$(date +%Y%m%d_%H%M%S)
+    run_spike_suite "$SPIKE_TS"
+
+    # 3. 데이터 추출 및 패키징
+    do_export_data "all_backup" "$GLOBAL_TIMESTAMP"
+    do_export_csv "current" "$GLOBAL_TIMESTAMP"
+    do_export_csv "current" "$SPIKE_TS"
+    do_package
+    ;;
+
   test-all-cycle)
     shift; VUS_LIST="$@"
-    [ -z "$VUS_LIST" ] && { echo "[에러] 사용법: ./manage.sh test-all-cycle 100 300 500"; exit 1; }
+    [ -z "$VUS_LIST" ] && { echo "[에러] 사용법: ./manage.sh test-all-cycle 50 100 300"; exit 1; }
 
     init_influx_db
     TOTAL=$(echo "$VUS_LIST" | wc -w)
     CUR=0
     START_TIME=$(date +%s)
 
-    print_header " [풀 사이클] VUs: $VUS_LIST (${TOTAL}세트 x 4프로토콜)"
+    print_header " [풀 사이클] VUs: $VUS_LIST (${TOTAL}세트) + 마지막 스파이크"
 
     for VUS_TARGET in $VUS_LIST; do
         CUR=$((CUR + 1))
         CYCLE_TS=$(date +%Y%m%d_%H%M%S)
         
         echo -e "\n========== [${CUR}/${TOTAL}] VUs = ${VUS_TARGET} =========="
-        run_benchmark_suite "$VUS_TARGET" "$CYCLE_TS"
+        run_standard_and_proxy "$VUS_TARGET" "$CYCLE_TS"
+        
         do_export_data "cycle_vus${VUS_TARGET}" "$CYCLE_TS"
         do_export_csv "current" "$CYCLE_TS"
 
         [ "$CUR" -lt "$TOTAL" ] && countdown 60 "다음 VUs 세트 진행 전 쿨다운"
     done
 
+    echo -e "\n========== [최종 단계] TC8 스파이크 극한 부하 테스트 =========="
+    SPIKE_TS=$(date +%Y%m%d_%H%M%S)
+    run_spike_suite "$SPIKE_TS"
+    
+    do_export_data "cycle_spike" "$SPIKE_TS"
+    do_export_csv "current" "$SPIKE_TS"
+
     echo ""
-    print_header " 🏁 사이클 완료! 데이터 정리 중..."
+    print_header " 🏁 모든 사이클 완료! 데이터 정리 중..."
     do_package
 
     END_TIME=$(date +%s)
     ELAPSED=$(( (END_TIME - START_TIME) / 60 ))
-    print_header " 🎉 전체 소요: ${ELAPSED}분 | ${TOTAL}세트 완료"
+    print_header " 🎉 전체 소요: ${ELAPSED}분 | ${TOTAL}사이클 + 스파이크 완료"
     ;;
 
   export) do_export_data "k6_manual" "$GLOBAL_TIMESTAMP" ;;
@@ -369,15 +409,13 @@ case "$COMMAND" in
     echo "  setup-alias                  : 'bm' 단축키 등록"
     echo ""
     echo " [테스트]"
-    echo "  test [VUs]                   : TC1~7 격리 (REST→GQL→gRPC)"
-    echo "  test-all-cycle 50 100 ..     : 다중 VUs 자동화 테스트 (폴더 덮어쓰기)"
-    echo "  test-spike                   : TC8 스파이크 5K 극한 테스트"
-    echo "  test-proxy [VUs]             : TC9 Envoy 단독"
+    echo "  test [VUs]                   : TC1~7, TC9 격리 테스트"
+    echo "  test-spike                   : TC8 환경에서 4개 아키텍처 스파이크"
+    echo "  test-all [VUs]               : 1~9번 모든 시나리오 한 번에 실행 (추천 ★)"
+    echo "  test-all-cycle 50 100 ..     : 다중 VUs 점진적 부하 + 마지막 스파이크 1회"
     echo ""
-    echo " [데이터]"
-    echo "  export / export-csv / restore-all / export-full / package"
-    echo ""
-    echo " [관리]"
+    echo " [데이터 & 관리]"
+    echo "  export / export-csv / export-full / restore-all / package"
     echo "  start / stop / restart / clean / logs"
     echo "----------------------------------------------------------------------"
     exit 1

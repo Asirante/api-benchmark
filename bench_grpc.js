@@ -1,25 +1,33 @@
 import grpc from 'k6/net/grpc';
 import { check, group, sleep } from 'k6';
 
-// ============================================================
-// bench_grpc.js — gRPC Direct 격리 벤치마크 (TC1~TC7)
-// gRPC 서버에 직접 연결하여 순수 프로토콜 성능만 측정합니다.
-// Envoy 프록시 경유 테스트는 bench_grpc_envoy.js에서 수행합니다.
-// ============================================================
-
 const clientDirect = new grpc.Client();
 clientDirect.load(['proto'], 'order.proto');
 
-const maxVUs = __ENV.VUS ? parseInt(__ENV.VUS) : 1000;
+const parsedVUs = parseInt(__ENV.VUS);
+const maxVUs = isNaN(parsedVUs) ? 1000 : parsedVUs;
+
+const standardStages = [
+  { duration: '10s', target: Math.floor(maxVUs / 2) },
+  { duration: '10s', target: maxVUs },
+  { duration: '30s', target: maxVUs },
+  { duration: '10s', target: 0 },
+];
+
+const spikeStages = [
+  { duration: '10s', target: 100 },
+  { duration: '5s',  target: 2000 },
+  { duration: '15s', target: 2000 },
+  { duration: '5s',  target: 100 },
+  { duration: '10s', target: 100 },
+  { duration: '5s',  target: 5000 },
+  { duration: '15s', target: 5000 },
+  { duration: '15s', target: 0 },
+];
 
 export const options = {
-  setupTimeout: '1m',
-  stages: [
-    { duration: '10s', target: Math.floor(maxVUs / 2) },
-    { duration: '10s', target: maxVUs },
-    { duration: '30s', target: maxVUs },
-    { duration: '10s', target: 0 },
-  ],
+  setupTimeout: '2m',
+  stages: __ENV.TEST_MODE === 'spike' ? spikeStages : standardStages,
 };
 
 let isConnected = false;
