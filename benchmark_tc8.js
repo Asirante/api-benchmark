@@ -14,14 +14,14 @@ clientEnvoy.load(['proto'], 'order.proto');
 export const options = {
   setupTimeout: '2m',
   stages: [
-    { duration: '10s', target: 100 },    // 1. 정상 부하 상태
-    { duration: '5s',  target: 5000 },   // 2. 1차 스파이크 (VUs 급증 모사)
-    { duration: '15s', target: 5000 },   // 3. 1차 스파이크 유지
-    { duration: '5s',  target: 100 },    // 4. 1차 회복 구간
+    { duration: '10s', target: 100 },    // 1. 정상 부하 상태 (Warm-up)
+    { duration: '5s',  target: 2000 },   // 2. 1차 스파이크 (빠른 부하 증가)
+    { duration: '15s', target: 2000 },   // 3. 1차 스파이크 유지 및 처리량 확인
+    { duration: '5s',  target: 100 },    // 4. 1차 회복 구간 (Scale-down 및 GC 확인)
     { duration: '10s', target: 100 },    // 5. 시스템 안정화 확인
-    { duration: '5s',  target: 10000 },  // 6. 2차 최대 스파이크 (극한의 트래픽 모사)
-    { duration: '15s', target: 10000 },  // 7. 시스템 임계점 도달 및 생존력 확인
-    { duration: '15s', target: 0 },      // 8. 최종 자원 회수 및 복구 확인
+    { duration: '5s',  target: 5000 },   // 6. 2차 극한 스파이크 (최대 5K 트래픽 모사)
+    { duration: '15s', target: 5000 },   // 7. 시스템 임계점 도달 및 생존력(OOM, 병목) 확인
+    { duration: '15s', target: 0 },      // 8. 최종 자원 회수 및 완전 복구 확인
   ],
 };
 

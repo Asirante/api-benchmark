@@ -1,1931 +1,329 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>API Benchmark Analyzer</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-    <style>
-        @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-
-        :root {
-            --bg-body: #020617;
-            --bg-card: #0f172a;
-            --bg-card-soft: rgba(30, 41, 59, 0.4);
-            --text-main: #ffffff;
-            --text-dim: #cbd5e1;
-            --text-muted: #94a3b8;
-            --border: #1e293b;
-            --border-strong: #334155;
-            --accent: #3b82f6;
-            --table-hover: rgba(59, 130, 246, 0.18);
-        }
-
-        [data-theme='light'] {
-            --bg-body: #f8fafc;
-            --bg-card: #ffffff;
-            --bg-card-soft: rgba(226, 232, 240, 0.5);
-            --text-main: #0f172a;
-            --text-dim: #334155;
-            --text-muted: #64748b;
-            --border: #e2e8f0;
-            --border-strong: #cbd5e1;
-            --accent: #1d4ed8;
-            --table-hover: #eff6ff;
-        }
-
-        body {
-            background-color: var(--bg-body);
-            color: var(--text-main);
-            font-family: 'Pretendard', sans-serif;
-            transition: background-color 0.2s ease, color 0.2s ease;
-            -webkit-font-smoothing: antialiased;
-            font-size: 0.875rem;
-        }
-
-        .t-text-main { color: var(--text-main); }
-        .t-text-dim { color: var(--text-dim); }
-        .t-text-muted { color: var(--text-muted); }
-        .t-border { border-color: var(--border); }
-        .t-border-strong { border-color: var(--border-strong); }
-        .t-bg-soft { background-color: var(--bg-card-soft); }
-
-        .card {
-            background-color: var(--bg-card);
-            border: 1px solid var(--border);
-            border-radius: 0.75rem;
-            padding: 1.25rem;
-            box-shadow: 0 4px 12px -4px rgba(0,0,0,0.2);
-            transition: background-color 0.2s ease, border-color 0.2s ease;
-        }
-
-        table { width: 100%; border-collapse: separate; border-spacing: 0; }
-        th {
-            background-color: var(--bg-card-soft);
-            padding: 0.75rem 1rem;
-            text-align: left;
-            font-size: 0.75rem;
-            font-weight: 800;
-            color: var(--text-dim);
-            cursor: pointer;
-            position: sticky;
-            top: 0;
-            z-index: 20;
-            border-bottom: 2px solid var(--accent);
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        th:hover { color: var(--accent); }
-        td {
-            padding: 0.75rem 1rem;
-            border-bottom: 1px solid var(--border);
-            font-size: 0.875rem;
-            font-weight: 500;
-            color: var(--text-main);
-        }
-        tr:hover td { background-color: var(--table-hover); }
-
-        .filter-chip {
-            padding: 0.5rem 0.875rem;
-            border-radius: 8px;
-            font-size: 0.8rem;
-            font-weight: 700;
-            cursor: pointer;
-            transition: all 0.15s;
-            border: 1px solid var(--border-strong);
-            user-select: none;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 0.4rem;
-            background-color: var(--bg-body);
-            color: var(--text-dim);
-        }
-        .filter-chip:hover { border-color: var(--accent); }
-        .filter-chip.active {
-            background-color: var(--accent);
-            color: #ffffff;
-            border-color: var(--accent);
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.35);
-        }
-        .filter-chip.disabled { opacity: 0.25; cursor: not-allowed; border-style: dashed; }
-        .filter-chip.disabled:hover { border-color: var(--border-strong); }
-
-        .metric-label-ko {
-            font-size: 0.65rem;
-            display: block;
-            opacity: 0.75;
-            font-weight: 700;
-            color: var(--accent);
-            margin-bottom: 1px;
-        }
-        .metric-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; font-size: 0.9rem; }
-
-        .filter-scroll-area { max-height: 360px; overflow-y: auto; padding-right: 0.5rem; }
-
-        ::-webkit-scrollbar { width: 8px; height: 8px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
-        ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
-
-        #loading-overlay { background: rgba(0, 0, 0, 0.85); backdrop-filter: blur(8px); display: none; }
-
-        .theme-toggle-btn {
-            background: var(--bg-card);
-            border: 1px solid var(--border-strong);
-            color: var(--text-main);
-            font-weight: 700;
-            font-size: 0.8rem;
-            transition: all 0.15s;
-        }
-        .theme-toggle-btn:hover { border-color: var(--accent); }
-
-        .btn-primary {
-            background-color: var(--accent);
-            color: #ffffff;
-            font-weight: 700;
-        }
-        .btn-primary:hover { filter: brightness(1.1); }
-
-        .btn-secondary {
-            background-color: var(--bg-card);
-            color: var(--text-dim);
-            border: 1px solid var(--border-strong);
-            font-weight: 700;
-        }
-        .btn-secondary:hover { color: #ef4444; border-color: #ef4444; }
-
-        .section-label {
-            font-size: 0.7rem;
-            font-weight: 800;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.08em;
-        }
-
-        .chart-title {
-            font-size: 1rem;
-            font-weight: 800;
-            color: var(--text-main);
-            display: flex;
-            align-items: center;
-            gap: 0.6rem;
-            margin-bottom: 1rem;
-        }
-
-        .table-header-bar {
-            background-color: var(--bg-card-soft);
-            border-bottom: 1px solid var(--border);
-        }
-
-        /* Chart Export */
-        .chart-export-btn {
-            background: var(--bg-card-soft);
-            border: 1px solid var(--border-strong);
-            color: var(--text-muted);
-            font-size: 0.7rem;
-            font-weight: 700;
-            padding: 0.35rem 0.7rem;
-            border-radius: 6px;
-            cursor: pointer;
-            transition: all 0.15s;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.3rem;
-            text-transform: uppercase;
-            letter-spacing: 0.03em;
-        }
-        .chart-export-btn:hover {
-            border-color: var(--accent);
-            color: var(--accent);
-            background: var(--table-hover);
-        }
-        .chart-export-dropdown {
-            position: absolute;
-            right: 0;
-            top: 100%;
-            margin-top: 4px;
-            background: var(--bg-card);
-            border: 1px solid var(--border-strong);
-            border-radius: 10px;
-            padding: 0.5rem;
-            z-index: 50;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.3);
-            min-width: 200px;
-            display: none;
-        }
-        .chart-export-dropdown.show { display: block; }
-        .chart-export-dropdown .export-option {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            padding: 0.55rem 0.75rem;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.78rem;
-            font-weight: 600;
-            color: var(--text-dim);
-            transition: all 0.1s;
-        }
-        .chart-export-dropdown .export-option:hover {
-            background: var(--table-hover);
-            color: var(--accent);
-        }
-        .chart-export-dropdown .export-option .fmt-badge {
-            font-size: 0.6rem;
-            font-weight: 800;
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
-            background: var(--bg-card-soft);
-            border: 1px solid var(--border);
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            min-width: 36px;
-            text-align: center;
-        }
-        
-        .export-all-bar {
-            display: flex;
-            align-items: center;
-            justify-content: flex-end;
-            gap: 0.5rem;
-            margin-bottom: 0.75rem;
-        }
-        .export-all-btn {
-            background: linear-gradient(135deg, #3b82f6, #6366f1);
-            color: #fff;
-            font-size: 0.75rem;
-            font-weight: 800;
-            padding: 0.5rem 1rem;
-            border-radius: 8px;
-            cursor: pointer;
-            border: none;
-            transition: all 0.15s;
-            display: inline-flex;
-            align-items: center;
-            gap: 0.4rem;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-        }
-        .export-all-btn:hover { filter: brightness(1.15); transform: translateY(-1px); }
-        .export-all-btn.multi {
-            background: linear-gradient(135deg, #10b981, #059669);
-            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
-        }
-
-        .export-toast {
-            position: fixed;
-            bottom: 2rem;
-            left: 50%;
-            transform: translateX(-50%) translateY(80px);
-            background: #10b981;
-            color: #fff;
-            padding: 0.75rem 1.5rem;
-            border-radius: 10px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            box-shadow: 0 4px 16px rgba(16, 185, 129, 0.4);
-            z-index: 200;
-            opacity: 0;
-            transition: all 0.3s ease;
-            pointer-events: none;
-        }
-        .export-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
-
-        /* Chart Type Selector */
-        .chart-type-selector {
-            display: inline-flex;
-            gap: 2px;
-            background: var(--bg-body);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            padding: 3px;
-        }
-        .chart-type-btn {
-            padding: 0.3rem 0.6rem;
-            border-radius: 6px;
-            font-size: 0.7rem;
-            font-weight: 700;
-            cursor: pointer;
-            border: none;
-            background: transparent;
-            color: var(--text-muted);
-            transition: all 0.12s;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-        }
-        .chart-type-btn:hover { color: var(--accent); }
-        .chart-type-btn.active {
-            background: var(--accent);
-            color: #fff;
-            box-shadow: 0 1px 4px rgba(59,130,246,0.3);
-        }
-        .chart-type-btn .rec-dot {
-            display: inline-block;
-            width: 5px;
-            height: 5px;
-            border-radius: 50%;
-            background: #10b981;
-            margin-left: 3px;
-            vertical-align: middle;
-        }
-
-        #drop-zone {
-            border: 2px dashed var(--border-strong);
-            background-color: var(--bg-card-soft);
-            transition: all 0.15s;
-        }
-        #drop-zone:hover {
-            border-color: var(--accent);
-            background-color: var(--table-hover);
-        }
-        #drop-zone .dz-title { color: var(--text-muted); }
-        #drop-zone .dz-sub { color: var(--text-dim); }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>API Benchmark Analyzer v3</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f0f2f5;--card:#fff;--border:#e2e6ea;--text:#1a1d23;--sub:#6b7280;--accent:#2563eb;--green:#059669;--red:#dc2626;--orange:#d97706}
+body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex}
+::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#c4c8cc;border-radius:3px}
+.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
+.chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);transition:all .15s;user-select:none}
+.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
+.chip:hover:not(.active){background:#f0f4ff;border-color:var(--accent)}
+.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;transition:all .2s;cursor:pointer}
+.drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:#eff6ff}
+.stat-value{font-size:24px;font-weight:700;line-height:1.1}
+.stat-label{font-size:10px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
+.accordion-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
+.accordion-toggle .arrow{transition:transform .2s;font-size:12px}
+.accordion-toggle.open .arrow{transform:rotate(180deg)}
+.desc{font-size:11px;color:var(--sub);font-weight:500;line-height:1.4;margin:4px 0 12px;padding:6px 10px;background:#f8fafc;border-radius:6px;border-left:3px solid var(--accent)}
+.section-title{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+.section-title .dot{width:8px;height:8px;border-radius:50%}
+</style>
 </head>
-<body class="min-h-screen p-4 md:p-6" data-theme="light">
-    <!-- Loading Overlay -->
-    <div id="loading-overlay" class="fixed inset-0 z-[100] flex items-center justify-center">
-        <div class="text-center">
-            <div class="animate-spin rounded-full h-16 w-16 border-t-4 border-b-4 border-blue-500 mx-auto mb-5"></div>
-            <p id="loading-text" class="text-white text-lg font-bold tracking-[0.15em]">ANALYZING DATA...</p>
-        </div>
+<body>
+<!-- SIDEBAR -->
+<aside style="width:320px;border-right:1px solid var(--border);background:#fff;display:flex;flex-direction:column;height:100vh;flex-shrink:0">
+  <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
+    <h1 style="font-size:18px;font-weight:700">Benchmark <span style="color:var(--accent)">Analyzer</span></h1>
+    <p style="font-size:10px;color:var(--sub);margin-top:2px">REST · GraphQL · gRPC · Envoy</p>
+  </div>
+  <div style="padding:14px;border-bottom:1px solid var(--border)">
+    <div class="drop-zone" id="dropZone" ondrop="handleDrop(event)" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')">
+      <input type="file" id="fileInput" multiple accept=".csv" style="display:none" onchange="handleFiles(this.files)">
+      <div style="font-size:12px;font-weight:600;color:var(--sub)" onclick="document.getElementById('fileInput').click()">CSV 드래그 / 클릭</div>
+      <div id="fileCount" style="font-size:11px;color:var(--accent);margin-top:4px;font-weight:600"></div>
     </div>
-
-    <div class="max-w-[1600px] mx-auto">
-        <!-- Header -->
-        <header class="mb-6 flex flex-col xl:flex-row xl:items-center justify-between gap-4 border-b t-border pb-5">
-            <div class="flex items-center gap-3">
-                <div class="w-10 h-10 bg-blue-600 rounded-xl flex items-center justify-center shadow-lg shadow-blue-900/30">
-                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-width="3" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                </div>
-                <div>
-                    <h1 class="text-xl font-black tracking-tight uppercase t-text-main">API Benchmark Analyzer</h1>
-                </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <button onclick="toggleTheme()" class="theme-toggle-btn px-3 py-2 rounded-lg flex items-center gap-2">
-                    <span id="theme-icon">☀️</span> <span id="theme-text">LIGHT</span>
-                </button>
-                <input type="file" id="csv-upload" multiple class="hidden" accept=".csv">
-                <button onclick="document.getElementById('csv-upload').click()" class="btn-primary px-5 py-2 rounded-lg text-sm flex items-center gap-2 shadow-md transition-all">
-                    📁 LOAD CSV
-                </button>
-                <button onclick="resetData()" class="btn-secondary px-3 py-2 rounded-lg text-sm transition-all">
-                    리셋
-                </button>
-            </div>
-        </header>
-
-        <!-- Drop Zone -->
-        <div id="drop-zone" class="mb-8 rounded-2xl p-12 text-center cursor-pointer">
-            <p class="dz-title text-2xl font-black uppercase tracking-[0.3em] mb-2 opacity-50">Drop Files Here</p>
-            <p class="dz-sub text-sm font-semibold">분석할 CSV 파일들을 이 영역으로 드래그하세요 (격리 실행 데이터 권장)</p>
-        </div>
-
-        <!-- Dashboard -->
-        <div id="dashboard" class="hidden space-y-6 pb-16">
-            <!-- Metrics Cards -->
-            <div id="data-info" class="grid grid-cols-2 lg:grid-cols-4 gap-4"></div>
-
-            <div class="grid grid-cols-1 xl:grid-cols-5 gap-5">
-                <!-- Sidebar (Filters) -->
-                <div class="xl:col-span-1 space-y-5">
-                    <div class="card">
-                        <div class="flex items-center justify-between mb-4 border-b t-border pb-3">
-                            <h3 class="section-label">Filters</h3>
-                            <button id="toggle-all-btn" onclick="handleToggleAll()" class="text-xs font-bold text-blue-500 hover:underline">SELECT ALL</button>
-                        </div>
-                        <div class="space-y-5">
-                            <div>
-                                <label class="section-label block mb-2 border-l-4 border-blue-500 pl-2">Test Case [실험]</label>
-                                <div id="filter-tc" class="filter-scroll-area"></div>
-                            </div>
-                            <div>
-                                <label class="section-label block mb-2 border-l-4 border-emerald-500 pl-2">Architecture [구조]</label>
-                                <div id="filter-api" class="filter-scroll-area"></div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Main Section -->
-                <div class="xl:col-span-4 space-y-6">
-                    <!-- Table Card -->
-                    <div class="card p-0 overflow-hidden">
-                        <div class="table-header-bar px-5 py-3 flex justify-between items-center">
-                            <h2 class="text-sm font-black flex items-center gap-2 t-text-main uppercase tracking-wide">
-                                <span class="w-1 h-5 bg-blue-500 rounded-sm"></span> 성능 지표 데이터 테이블
-                            </h2>
-                            <button onclick="exportToCSV()" class="text-xs font-bold text-blue-500 hover:underline">데이터 내보내기 (CSV)</button>
-                        </div>
-                        <div class="overflow-x-auto max-h-[480px]">
-                            <table id="stats-table">
-                                <thead>
-                                    <tr>
-                                        <th onclick="sortData('tc')">실험 [TC] ↕</th>
-                                        <th onclick="sortData('api')">아키텍처 [API] ↕</th>
-                                        <th onclick="sortData('count')" class="text-right">샘플 ↕</th>
-                                        <th onclick="sortData('avg')" class="text-right">평균 [Avg] ↕</th>
-                                        <th onclick="sortData('p99')" class="text-right">99% [p99] ↕</th>
-                                        <th onclick="sortData('p999')" class="text-right">꼬리 [p99.9] ↕</th>
-                                        <th onclick="sortData('stdDev')" class="text-right">편차 [Std] ↕</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="stats-body"></tbody>
-                            </table>
-                        </div>
-                    </div>
-
-                    <!-- Charts List -->
-                    <div class="space-y-5">
-                        <div class="export-all-bar">
-                            <span class="section-label">Charts</span>
-                            <div style="flex:1"></div>
-                            <select id="export-all-format" style="background:var(--bg-card);border:1px solid var(--border-strong);color:var(--text-dim);font-size:0.7rem;font-weight:700;padding:0.35rem 0.5rem;border-radius:6px;cursor:pointer;">
-                                <option value="png">PNG</option>
-                                <option value="jpg">JPG</option>
-                                <option value="webp">WEBP</option>
-                            </select>
-                            <button class="export-all-btn multi" onclick="exportAllTCCharts()">
-                                📂 모든 TC 개별 압축
-                            </button>
-                            <button class="export-all-btn" onclick="exportAllCharts()">
-                                📦 현재 뷰 내보내기
-                            </button>
-                        </div>
-                        <!-- Latency Chart -->
-                        <div class="card">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
-                                    📈 [시계열] 지연 시간 변화 추이 (Latency ms)
-                                </h3>
-                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">요청~응답 전체 소요 시간. 프로토콜별 체감 응답 속도 비교의 핵심 지표</p>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-latencyChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'latencyChart')">
-                                            💾 내보내기 ▾
-                                        </button>
-                                        <div class="chart-export-dropdown" id="dropdown-latencyChart">
-                                            <div class="export-option" onclick="exportChart('latencyChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('latencyChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('latencyChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[360px]"><canvas id="latencyChart"></canvas></div>
-                        </div>
-                        <!-- TPS Chart -->
-                        <div class="card">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
-                                    ⚡ [처리량] 초당 요청 처리 수 (TPS)
-                                </h3>
-                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">단위 시간당 처리 완료한 요청 수. 부하 증가 시 처리량 방어력 측정</p>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-tpsChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'tpsChart')">
-                                            💾 내보내기 ▾
-                                        </button>
-                                        <div class="chart-export-dropdown" id="dropdown-tpsChart">
-                                            <div class="export-option" onclick="exportChart('tpsChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('tpsChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('tpsChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="tpsChart"></canvas></div>
-                        </div>
-                        <!-- p99.9 Chart -->
-                        <div class="card">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
-                                    🏆 [비교] 최악의 0.1% 꼬리 지연 시간 비교 (ms)
-                                </h3>
-                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">1000건 중 가장 느린 1건의 응답 시간. 실 사용자 최악 체감 지표</p>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-p99Chart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'p99Chart')">
-                                            💾 내보내기 ▾
-                                        </button>
-                                        <div class="chart-export-dropdown" id="dropdown-p99Chart">
-                                            <div class="export-option" onclick="exportChart('p99Chart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('p99Chart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('p99Chart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="p99Chart"></canvas></div>
-                        </div>
-                        <!-- Error Rate Chart -->
-                        <div class="card" id="error-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
-                                    🚨 [안정성] 에러율 분석 (Error Rate %)
-                                </h3>
-                                <p style="font-size:0.7rem;color:var(--text-muted);margin:0;font-weight:600;line-height:1.4;">요청 실패 비율. 0%여도 Latency가 높으면 사실상 서비스 불능</p>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-errorChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'errorChart')">
-                                            💾 내보내기 ▾
-                                        </button>
-                                        <div class="chart-export-dropdown" id="dropdown-errorChart">
-                                            <div class="export-option" onclick="exportChart('errorChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('errorChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('errorChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <div style="height:0.75rem"></div>
-                            <!-- Error Summary Table -->
-                            <div id="error-summary" style="margin-bottom:1rem;"></div>
-                            <div class="h-[300px]"><canvas id="errorChart"></canvas></div>
-                        </div>
-                        <!-- Server Waiting Chart -->
-                        <div class="card" id="waiting-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
-                                    ⏳ [병목] 서버 처리 대기 시간 (TTFB / Waiting ms)
-                                </h3>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-waitingChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'waitingChart')">💾 내보내기 ▾</button>
-                                        <div class="chart-export-dropdown" id="dropdown-waitingChart">
-                                            <div class="export-option" onclick="exportChart('waitingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('waitingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('waitingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">서버가 요청을 받고 응답을 시작하기까지 걸린 시간 (TTFB). Latency의 주요 병목 원인 분석 · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span> — k6 gRPC 모듈은 타이밍 분해를 미지원하므로 gRPC는 duration으로 비교</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="waitingChart"></canvas></div>
-                        </div>
-                        <!-- Connection Blocked Chart -->
-                        <div class="card" id="blocked-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-pink-500 rounded-full"></span>
-                                    🔒 [커넥션] 요청 블로킹 대기 시간 (Blocked ms)
-                                </h3>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-blockedChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'blockedChart')">💾 내보내기 ▾</button>
-                                        <div class="chart-export-dropdown" id="dropdown-blockedChart">
-                                            <div class="export-option" onclick="exportChart('blockedChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('blockedChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('blockedChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">요청 전 커넥션 풀 대기 시간. HTTP/1.1 커넥션 포화 여부 판단 (Docker 내부 통신에서는 낮을 수 있음) · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="blockedChart"></canvas></div>
-                        </div>
-                        <!-- Request Sending Chart -->
-                        <div class="card" id="sending-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
-                                    📤 [직렬화] 요청 데이터 전송 시간 (Sending ms)
-                                </h3>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-sendingChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'sendingChart')">💾 내보내기 ▾</button>
-                                        <div class="chart-export-dropdown" id="dropdown-sendingChart">
-                                            <div class="export-option" onclick="exportChart('sendingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('sendingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('sendingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">클라이언트→서버 요청 전송 시간. JSON 직렬화 크기를 간접 측정 (쓰기 TC6에서 유의미) · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="sendingChart"></canvas></div>
-                        </div>
-                        <!-- Response Receiving Chart -->
-                        <div class="card" id="receiving-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-emerald-500 rounded-full"></span>
-                                    📥 [역직렬화] 응답 데이터 수신 시간 (Receiving ms)
-                                </h3>
-                                <div style="display:flex;align-items:center;gap:0.5rem;">
-                                    <div class="chart-type-selector" id="type-sel-receivingChart"></div>
-                                    <div style="position:relative">
-                                        <button class="chart-export-btn" onclick="toggleExportMenu(event, 'receivingChart')">💾 내보내기 ▾</button>
-                                        <div class="chart-export-dropdown" id="dropdown-receivingChart">
-                                            <div class="export-option" onclick="exportChart('receivingChart','png')"><span class="fmt-badge">PNG</span> 고해상도 이미지</div>
-                                            <div class="export-option" onclick="exportChart('receivingChart','jpg')"><span class="fmt-badge">JPG</span> 압축 이미지</div>
-                                            <div class="export-option" onclick="exportChart('receivingChart','webp')"><span class="fmt-badge">WEBP</span> 경량 이미지</div>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">서버→클라이언트 응답 수신 시간. 대용량 페이로드(TC2, TC5)에서 JSON 응답의 전송 비용 확인 · <span style="color:#f59e0b;">⚠ REST/GraphQL 전용</span></p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="receivingChart"></canvas></div>
-                        </div>
-
-                        <!-- ========================================== -->
-                        <!-- Cross-VUs Comparison Section               -->
-                        <!-- ========================================== -->
-                        <div class="card" id="cross-vus-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-purple-500 rounded-full"></span>
-                                    [VUs 통합 비교] p99.9 Tail Latency by VUs
-                                </h3>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">다중 VUs 폴더를 로드하면 VUs별 API 성능을 한눈에 비교합니다. vus.csv의 vus_group 값으로 자동 분류</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[350px]"><canvas id="crossVusP99Chart"></canvas></div>
-                        </div>
-                        <div class="card" id="cross-vus-avg-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-blue-500 rounded-full"></span>
-                                    [VUs 통합 비교] Average Latency by VUs
-                                </h3>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">VUs 증가에 따른 평균 지연 시간 변화. 프로토콜 효율 구간 vs 인프라 병목 구간 구분 가능</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[350px]"><canvas id="crossVusAvgChart"></canvas></div>
-                        </div>
-                        <div class="card" id="cross-vus-tps-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-teal-500 rounded-full"></span>
-                                    [VUs 통합 비교] TPS by VUs
-                                </h3>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">VUs 증가에 따른 처리량 변화. 부하 방어력과 처리량 포화 지점 확인</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[350px]"><canvas id="crossVusTpsChart"></canvas></div>
-                        </div>
-                        <!-- Resource Memory Chart (cAdvisor) -->
-                        <div class="card" id="resource-mem-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-red-500 rounded-full"></span>
-                                    [리소스] 컨테이너별 Memory 사용량 (MB)
-                                </h3>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">cAdvisor에서 수집한 컨테이너별 메모리 사용량 추이. resource_*.csv 파일을 함께 드래그하세요</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="resourceMemChart"></canvas></div>
-                        </div>
-                        <!-- Resource CPU Chart -->
-                        <div class="card" id="resource-cpu-section" style="display:none;">
-                            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:0.5rem;">
-                                <h3 class="chart-title" style="margin-bottom:0">
-                                    <span class="w-2.5 h-2.5 bg-orange-500 rounded-full"></span>
-                                    [리소스] 컨테이너별 CPU 사용률 (%)
-                                </h3>
-                            </div>
-                            <p style="font-size:0.7rem;color:var(--text-muted);margin:0.4rem 0 0;font-weight:600;line-height:1.4;">인접 샘플 간 CPU 누적 나노초 변화량으로 계산한 사용률. 수집 간격(2초) 기준</p>
-                            <div style="height:0.75rem"></div>
-                            <div class="h-[300px]"><canvas id="resourceCpuChart"></canvas></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
+  </div>
+  <div id="filterPanel" style="padding:14px;flex:1;overflow-y:auto;display:none">
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:700">VUs (부하 단계)</span>
+        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('vus')">ALL</span>
+      </div>
+      <div id="fVus" style="display:flex;flex-wrap:wrap;gap:4px"></div>
     </div>
-
-    <script>
-        let fullData = [];
-        let reqsData = [];  // TPS 차트 전용 (http_reqs, grpc_reqs)
-        let errorData = []; // 에러율 분석용 (checks, http_req_failed)
-        let waitingData = []; // 서버 처리 대기 시간 (http_req_waiting)
-        let blockedData = []; // 커넥션 블로킹 시간 (http_req_blocked)
-        let sendingData = []; // 요청 직렬화+전송 시간 (http_req_sending)
-        let receivingData = []; // 응답 수신+역직렬화 시간 (http_req_receiving)
-        let crossVusData = {}; // {vus: {tc: {api: [values]}}} — 다중 VUs 비교용
-        let detectedVusGroups = new Set(); // vus_group 값 수집
-        let resourceData = []; // cAdvisor 리소스 데이터 [{time, container, cpu, memory_mb}]
-        const CADVISOR_INTERVAL_SEC = 2; // collect_resources의 수집 간격 (초)
-        let currentSort = { key: 'p999', asc: true };
-        let filters = { tc: new Set(), api: new Set() };
-        let activeFilters = { tc: new Set(), api: new Set() };
-        let tcApiMap = {};
-        let charts = {};
-        let sessionMeta = { vus: 0, files: 0, rows: 0 };
-        let chartAnimationEnabled = true; // 차트 내보내기 시 애니메이션 제어용
-
-        const overlay = document.getElementById('loading-overlay');
-
-        function showLoading(text) {
-            const p = document.getElementById('loading-text');
-            if (text) p.textContent = text;
-            overlay.style.display = 'flex';
-        }
-
-        function hideLoading() {
-            overlay.style.display = 'none';
-            document.getElementById('loading-text').textContent = 'ANALYZING DATA...';
-        }
-
-        function toggleTheme() {
-            const body = document.body;
-            const current = body.getAttribute('data-theme');
-            const next = current === 'dark' ? 'light' : 'dark';
-            body.setAttribute('data-theme', next);
-            document.getElementById('theme-icon').textContent = next === 'dark' ? '🌙' : '☀️';
-            document.getElementById('theme-text').textContent = next === 'dark' ? 'DARK' : 'LIGHT';
-            updateAll();
-        }
-
-        document.getElementById('drop-zone').onclick = () => document.getElementById('csv-upload').click();
-        document.getElementById('drop-zone').addEventListener('dragover', (e) => { e.preventDefault(); e.currentTarget.style.borderColor = 'var(--accent)'; });
-        document.getElementById('drop-zone').addEventListener('dragleave', (e) => { e.currentTarget.style.borderColor = ''; });
-        document.getElementById('drop-zone').addEventListener('drop', (e) => {
-            e.preventDefault();
-            e.currentTarget.style.borderColor = '';
-            handleFiles(e.dataTransfer.files);
-        });
-        document.getElementById('csv-upload').onchange = (e) => handleFiles(e.target.files);
-
-        async function handleFiles(files) {
-            if (files.length === 0) return;
-            showLoading('ANALYZING CSV...');
-
-            setTimeout(async () => {
-                const loaders = Array.from(files).map(file => {
-                    return new Promise((resolve) => {
-                        Papa.parse(file, {
-                            header: true, skipEmptyLines: true, dynamicTyping: true,
-                            complete: (res) => resolve({ name: file.name, data: res.data })
-                        });
-                    });
-                });
-
-                const results = await Promise.all(loaders);
-                sessionMeta.files += files.length;
-                processBenchmarkData(results);
-                hideLoading();
-            }, 50);
-        }
-
-        function formatK6Time(rawTime) {
-            if (!rawTime) return null;
-            try {
-                const date = new Date(rawTime);
-                if (isNaN(date.getTime())) {
-                    const match = String(rawTime).match(/(\d{2}:\d{2}:\d{2})/);
-                    return match ? match[1] : String(rawTime).split('.')[0];
-                }
-                return date.toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            } catch (e) {
-                return String(rawTime).split('.')[0];
-            }
-        }
-
-        function processBenchmarkData(files) {
-            files.forEach(file => {
-                const fname = file.name.toLowerCase();
-                const isDuration = fname.includes('duration');
-                const isReqs = fname.includes('_reqs') && !fname.includes('duration');
-                const isVus = fname.includes('vus') && !fname.includes('cross');
-                const isError = fname.includes('checks') || fname.includes('failed');
-                const isWaiting = fname.includes('waiting');
-                const isBlocked = fname.includes('blocked');
-                const isSending = fname.includes('sending');
-                const isReceiving = fname.includes('receiving');
-                const isResource = fname.startsWith('resource_') || fname.includes('resource');
-
-                // 리소스 CSV는 별도 처리 (time,container,cpu_percent,memory_mb)
-                if (isResource) {
-                    file.data.forEach(row => {
-                        const time = row.time;
-                        const container = row.container;
-                        const mem = parseFloat(row.memory_mb || 0);
-                        const cpu = parseFloat(row.cpu_percent || 0);
-                        if (time && container) {
-                            const timeClean = String(time).replace(/T/, ' ').substring(11, 19);
-                            resourceData.push({ time: timeClean, container, cpu, memory_mb: mem });
-                        }
-                    });
-                    return;
-                }
-
-                file.data.forEach(row => {
-                    const rawVal = row.value;
-                    const val = (rawVal !== undefined && rawVal !== null && rawVal !== '') ? rawVal : (row.avg !== undefined ? row.avg : row.mean);
-                    const api = row.api || row.name;
-                    const tc = row.tc || 'etc';
-
-                    if (isVus || row.metric === 'vus' || api === 'vus') {
-                        if (val > sessionMeta.vus) sessionMeta.vus = Math.round(val);
-                        return;
-                    }
-
-                    if (val === undefined || val === null || val === '') return;
-                    if (!api || api === 'vus') return;
-
-                    const timeStr = formatK6Time(row.time);
-                    if (!timeStr) return;
-
-                    const dataRow = {
-                        tc: String(tc).toLowerCase(),
-                        api: String(api).toLowerCase(),
-                        value: parseFloat(val),
-                        time: timeStr
-                    };
-
-                    if (isDuration) {
-                        fullData.push(dataRow);
-                        filters.tc.add(dataRow.tc);
-                        filters.api.add(dataRow.api);
-                        if (!tcApiMap[dataRow.tc]) tcApiMap[dataRow.tc] = new Set();
-                        tcApiMap[dataRow.tc].add(dataRow.api);
-                        // Cross-VUs 비교용: vus_group 수집
-                        const vg = row.vus_group || '';
-                        if (vg && vg !== 'null' && vg !== '') {
-                            detectedVusGroups.add(String(vg));
-                            if (!crossVusData[vg]) crossVusData[vg] = {};
-                            if (!crossVusData[vg][dataRow.tc]) crossVusData[vg][dataRow.tc] = {};
-                            if (!crossVusData[vg][dataRow.tc][dataRow.api]) crossVusData[vg][dataRow.tc][dataRow.api] = [];
-                            crossVusData[vg][dataRow.tc][dataRow.api].push(dataRow.value);
-                        }
-                    } else if (isReqs) {
-                        reqsData.push(dataRow);
-                    } else if (isError) {
-                        const isChecks = fname.includes('checks');
-                        const failed = isChecks ? (dataRow.value === 0) : (dataRow.value === 1);
-                        errorData.push({ tc: dataRow.tc, api: dataRow.api, time: dataRow.time, failed: failed ? 1 : 0 });
-                    } else if (isWaiting) {
-                        waitingData.push(dataRow);
-                    } else if (isBlocked) {
-                        blockedData.push(dataRow);
-                    } else if (isSending) {
-                        sendingData.push(dataRow);
-                    } else if (isReceiving) {
-                        receivingData.push(dataRow);
-                    }
-                });
-            });
-
-            sessionMeta.rows = fullData.length;
-            filters.tc.forEach(v => activeFilters.tc.add(v));
-            filters.api.forEach(v => activeFilters.api.add(v));
-            initDashboard();
-        }
-
-        function initDashboard() {
-            document.getElementById('dashboard').classList.remove('hidden');
-            document.getElementById('drop-zone').classList.add('hidden');
-            renderFilterUI();
-            renderChartTypeSelectors();
-            updateAll();
-        }
-
-        function handleToggleAll() {
-            const allSelected = (activeFilters.tc.size === filters.tc.size);
-            if (allSelected) {
-                activeFilters.tc.clear();
-                activeFilters.api.clear();
-            } else {
-                filters.tc.forEach(v => activeFilters.tc.add(v));
-                filters.api.forEach(v => activeFilters.api.add(v));
-            }
-            renderFilterUI();
-            updateAll();
-        }
-
-        const tcLabels = {
-            'tc1': '단순 조회', 'tc2': '대용량 페이징', 'tc3': '언더페칭 (N+1)',
-            'tc4': '부분 필드 추출', 'tc5': '극한 조인', 'tc6': '트랜잭션 쓰기',
-            'tc7': '예외 처리', 'tc8_spike': '스파이크 부하', 'tc9_simple': '프록시 단순조회',
-            'tc9_heavy': '프록시 대용량', 'tc9_error': '프록시 에러',
-        };
-
-        const apiLabels = {
-            'rest': 'REST API', 'graphql': 'GraphQL', 'grpc': 'gRPC Direct',
-            'grpc_direct': 'gRPC Direct', 'grpc_envoy': 'gRPC Envoy',
-            'rest_part1': 'REST 1차호출', 'rest_part2': 'REST 2차호출',
-            'grpc_part1': 'gRPC 1차호출', 'grpc_part2': 'gRPC 2차호출',
-            'rest_error': 'REST 에러', 'graphql_error': 'GQL 에러', 'grpc_error': 'gRPC 에러',
-        };
-
-        function getTcLabel(val) {
-            if (tcLabels[val]) return tcLabels[val];
-            const key = Object.keys(tcLabels).find(k => val.startsWith(k));
-            return key ? tcLabels[key] : '';
-        }
-
-        function getApiLabel(val) { return apiLabels[val] || ''; }
-
-        function renderFilterUI() {
-            const tcContainer = document.getElementById('filter-tc');
-            const apiContainer = document.getElementById('filter-api');
-
-            const availableApis = new Set();
-            activeFilters.tc.forEach(tc => {
-                if (tcApiMap[tc]) tcApiMap[tc].forEach(a => availableApis.add(a));
-            });
-            if (activeFilters.tc.size === 0) filters.api.forEach(a => availableApis.add(a));
-
-            tcContainer.innerHTML = '';
-            Array.from(filters.tc).sort().forEach(val => {
-                const isActive = activeFilters.tc.has(val);
-                const label = getTcLabel(val);
-                const chip = document.createElement('div');
-                chip.innerHTML = `<span style="display:flex;flex-direction:column;gap:1px;"><span class="uppercase tracking-tight" style="font-size:0.8rem;">${val}</span>${label ? `<span style="font-size:0.65rem;opacity:0.7;font-weight:600;letter-spacing:0;">${label}</span>` : ''}</span> ${isActive ? '✓' : ''}`;
-                chip.className = `filter-chip ${isActive ? 'active' : ''}`;
-                chip.onclick = () => {
-                    if (isActive) {
-                        activeFilters.tc.delete(val);
-                        const apisToRemove = tcApiMap[val] || [];
-                        apisToRemove.forEach(a => {
-                            let keep = false;
-                            activeFilters.tc.forEach(otherTc => {
-                                if (tcApiMap[otherTc] && tcApiMap[otherTc].has(a)) keep = true;
-                            });
-                            if (!keep) activeFilters.api.delete(a);
-                        });
-                    } else {
-                        activeFilters.tc.add(val);
-                        if (tcApiMap[val]) tcApiMap[val].forEach(a => activeFilters.api.add(a));
-                    }
-                    renderFilterUI();
-                    updateAll();
-                };
-                tcContainer.appendChild(chip);
-            });
-
-            apiContainer.innerHTML = '';
-            Array.from(filters.api).sort().forEach(val => {
-                const isAvailable = availableApis.has(val);
-                const isActive = activeFilters.api.has(val);
-                const label = getApiLabel(val);
-                const chip = document.createElement('div');
-                chip.innerHTML = `<span style="display:flex;flex-direction:column;gap:1px;"><span class="uppercase tracking-tight" style="font-size:0.8rem;">${val}</span>${label ? `<span style="font-size:0.65rem;opacity:0.7;font-weight:600;letter-spacing:0;">${label}</span>` : ''}</span> ${isActive ? '✓' : ''}`;
-                chip.className = `filter-chip ${!isAvailable ? 'disabled' : (isActive ? 'active' : '')}`;
-                if (isAvailable) {
-                    chip.onclick = () => {
-                        if (isActive) activeFilters.api.delete(val);
-                        else activeFilters.api.add(val);
-                        renderFilterUI();
-                        updateAll();
-                    };
-                }
-                apiContainer.appendChild(chip);
-            });
-
-            document.getElementById('toggle-all-btn').textContent = (activeFilters.tc.size === filters.tc.size && filters.tc.size > 0) ? 'DESELECT ALL' : 'SELECT ALL';
-        }
-
-        function updateAll() {
-            const filtered = fullData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
-            renderSummary(filtered.length);
-            const grouped = groupData(filtered);
-            renderTable(grouped);
-            cachedChartData = preprocessChartData(filtered);
-            renderCharts(cachedChartData);
-        }
-
-        let cachedChartData = null;
-
-        function groupData(data) {
-            const groups = {};
-            data.forEach(d => {
-                const key = `${d.tc}|${d.api}`;
-                if (!groups[key]) groups[key] = { vals: [], sum: 0 };
-                groups[key].vals.push(d.value);
-                groups[key].sum += d.value;
-            });
-            return Object.entries(groups).map(([key, g]) => {
-                const [tc, api] = key.split('|');
-                const vals = g.vals;
-                const n = vals.length;
-                const avg = g.sum / n;
-                vals.sort((a, b) => a - b);
-                const getP = (p) => vals[Math.floor((n - 1) * p)];
-                let sqSum = 0;
-                for (let i = 0; i < n; i++) sqSum += (vals[i] - avg) ** 2;
-                return {
-                    tc, api, count: n,
-                    avg: avg.toFixed(2), p95: getP(0.95).toFixed(2),
-                    p99: getP(0.99).toFixed(2), p999: getP(0.999).toFixed(2),
-                    stdDev: Math.sqrt(sqSum / n).toFixed(2)
-                };
-            });
-        }
-
-        function sortData(key) {
-            if (currentSort.key === key) currentSort.asc = !currentSort.asc;
-            else { currentSort.key = key; currentSort.asc = true; }
-            updateAll();
-        }
-
-        function renderSummary(filteredRows) {
-            const info = document.getElementById('data-info');
-            info.innerHTML = `
-                <div class="card border-l-4 border-blue-500">
-                    <div class="section-label mb-1">MAX SCALE [최대 유저수]</div>
-                    <div class="text-2xl font-black t-text-main">${sessionMeta.vus || 'N/A'} <span class="text-xs font-bold t-text-muted">VUs</span></div>
-                </div>
-                <div class="card border-l-4 border-emerald-500">
-                    <div class="section-label mb-1">SESSIONS [세션 파일]</div>
-                    <div class="text-2xl font-black t-text-main">${sessionMeta.files} <span class="text-xs font-bold t-text-muted">CSV</span></div>
-                </div>
-                <div class="card border-l-4 border-purple-500">
-                    <div class="section-label mb-1">SAMPLES [분석 데이터]</div>
-                    <div class="text-2xl font-black text-purple-500">${(filteredRows/1000).toFixed(1)}k <span class="text-xs font-bold t-text-muted">PTS</span></div>
-                </div>
-                <div class="card border-l-4 border-slate-500">
-                    <div class="section-label mb-1">TOTAL VOLUME [전체 규모]</div>
-                    <div class="text-2xl font-black t-text-muted">${(sessionMeta.rows/1000).toFixed(0)}k <span class="text-xs font-bold t-text-muted">ROWS</span></div>
-                </div>
-            `;
-        }
-
-        function renderTable(groupedData) {
-            const tbody = document.getElementById('stats-body');
-            const k = currentSort.key;
-            const asc = currentSort.asc;
-            const sorted = groupedData.sort((a,b) => {
-                let v1 = a[k], v2 = b[k];
-                if (!isNaN(v1)) return asc ? v1 - v2 : v2 - v1;
-                return asc ? String(v1).localeCompare(String(v2)) : String(v2).localeCompare(String(v1));
-            });
-            tbody.innerHTML = sorted.map(d => `
-                <tr>
-                    <td class="font-bold text-xs uppercase t-text-dim">${d.tc}</td>
-                    <td><span class="px-2.5 py-1 rounded-md text-xs font-black uppercase border" style="color:${getApiColor(d.api)}; background:${getApiColor(d.api)}1a; border-color:${getApiColor(d.api)}40">${d.api}</span></td>
-                    <td class="text-right t-text-muted font-mono font-bold text-xs">${d.count.toLocaleString()}</td>
-                    <td class="text-right metric-val text-blue-500"><span class="metric-label-ko">[평균 지연]</span>${d.avg} ms</td>
-                    <td class="text-right metric-val t-text-dim"><span class="metric-label-ko">[99% 지연]</span>${d.p99} ms</td>
-                    <td class="text-right metric-val text-red-500 font-black bg-red-500/10 px-2 py-1 rounded-lg border border-red-500/30"><span class="metric-label-ko" style="color:#ef4444">[꼬리 지연]</span>${d.p999} ms</td>
-                    <td class="text-right t-text-muted font-mono text-xs">${d.stdDev}</td>
-                </tr>
-            `).join('');
-        }
-
-        function preprocessChartData(data) {
-            const timeline = {};
-            const apiTotals = {};
-            const n = data.length;
-            for (let i = 0; i < n; i++) {
-                const d = data[i];
-                const t = d.time;
-                const a = d.api;
-                if (!timeline[t]) timeline[t] = {};
-                const slot = timeline[t];
-                if (!slot[a]) slot[a] = { sum: 0, count: 0 };
-                slot[a].sum += d.value;
-                slot[a].count++;
-                if (!apiTotals[a]) apiTotals[a] = [];
-                apiTotals[a].push(d.value);
-            }
-
-            const times = Object.keys(timeline).sort();
-            const apis = Object.keys(apiTotals).sort();
-
-            const tpsTimeline = {};
-            const tpsApiSet = new Set();
-
-            const filteredReqs = reqsData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
-            for (let i = 0; i < filteredReqs.length; i++) {
-                const d = filteredReqs[i];
-                if (!tpsTimeline[d.time]) tpsTimeline[d.time] = {};
-                if (!tpsTimeline[d.time][d.api]) tpsTimeline[d.time][d.api] = 0;
-                tpsTimeline[d.time][d.api]++;
-                tpsApiSet.add(d.api);
-            }
-
-            const grpcApis = apis.filter(a => !tpsApiSet.has(a));
-            if (grpcApis.length > 0) {
-                for (const t of times) {
-                    for (const gApi of grpcApis) {
-                        const slot = timeline[t] && timeline[t][gApi];
-                        if (slot && slot.count > 0) {
-                            if (!tpsTimeline[t]) tpsTimeline[t] = {};
-                            tpsTimeline[t][gApi] = slot.count;
-                        }
-                    }
-                }
-            }
-
-            const hasTpsData = Object.keys(tpsTimeline).length > 0;
-            const tpsTimes = hasTpsData ? Object.keys(tpsTimeline).sort() : times;
-
-            const apiP999 = {};
-            apis.forEach(api => {
-                const sorted = apiTotals[api].sort((a, b) => a - b);
-                apiP999[api] = sorted[Math.floor((sorted.length - 1) * 0.999)];
-            });
-            return { timeline, tpsTimeline, apiTotals, apiP999, times, tpsTimes, apis, hasTpsData };
-        }
-
-        const chartTypeConfig = {
-            latencyChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
-            tpsChart: { types: ['line', 'bar', 'radar'], labels: { line: 'Line', bar: 'Bar', radar: 'Radar' }, recommended: 'line' },
-            p99Chart: { types: ['bar', 'polarArea', 'doughnut', 'radar'], labels: { bar: 'Bar', polarArea: 'Polar', doughnut: 'Donut', radar: 'Radar' }, recommended: 'bar' },
-            errorChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
-            waitingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
-            blockedChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
-            sendingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' },
-            receivingChart: { types: ['line', 'bar'], labels: { line: 'Line', bar: 'Bar' }, recommended: 'line' }
-        };
-
-        const chartTypeState = { latencyChart: 'line', tpsChart: 'line', p99Chart: 'bar', errorChart: 'line', waitingChart: 'line', blockedChart: 'line', sendingChart: 'line', receivingChart: 'line' };
-
-        function renderChartTypeSelectors() {
-            Object.keys(chartTypeConfig).forEach(chartId => {
-                const cfg = chartTypeConfig[chartId];
-                const container = document.getElementById('type-sel-' + chartId);
-                if (!container) return;
-                container.innerHTML = cfg.types.map(t => {
-                    const isActive = chartTypeState[chartId] === t;
-                    const isRec = cfg.recommended === t;
-                    return `<button class="chart-type-btn ${isActive ? 'active' : ''}" onclick="changeChartType('${chartId}','${t}')" title="${isRec ? '추천 타입' : ''}">${cfg.labels[t]}${isRec ? '<span class="rec-dot"></span>' : ''}</button>`;
-                }).join('');
-            });
-        }
-
-        function changeChartType(chartId, newType) {
-            chartTypeState[chartId] = newType;
-            renderChartTypeSelectors();
-            if (cachedChartData) renderCharts(cachedChartData);
-        }
-
-        function renderCharts(cd) {
-            if (!cd || cd.apis.length === 0) {
-                Object.values(charts).forEach(c => c.destroy());
-                charts = {};
-                return;
-            }
-            const { timeline, tpsTimeline, apiP999, times, tpsTimes, apis, hasTpsData } = cd;
-
-            // Latency
-            const latencyType = chartTypeState.latencyChart;
-            const latencyDatasets = apis.map(api => {
-                const color = getApiColor(api);
-                const values = times.map(t => {
-                    const slot = timeline[t][api];
-                    return slot ? (slot.sum / slot.count).toFixed(1) : null;
-                });
-                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (latencyType === 'line' ? '15' : '80'), borderWidth: latencyType === 'line' ? 2.5 : 2 };
-                if (latencyType === 'line') Object.assign(base, { tension: 0.15, pointRadius: 0, fill: true });
-                if (latencyType === 'bar') Object.assign(base, { borderRadius: 4 });
-                if (latencyType === 'radar') Object.assign(base, { backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true });
-                return base;
-            });
-            updateChart('latencyChart', latencyType, latencyType === 'radar' ? times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0) : times, latencyType === 'radar' ? apis.map(api => {
-                const sampledTimes = times.filter((_, i) => i % Math.max(1, Math.floor(times.length / 12)) === 0);
-                const color = getApiColor(api);
-                return { label: api.toUpperCase(), data: sampledTimes.map(t => { const slot = timeline[t][api]; return slot ? (slot.sum / slot.count).toFixed(1) : 0; }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
-            }) : latencyDatasets, 'Latency [지연 시간] (ms)');
-
-            // TPS
-            const tpsType = chartTypeState.tpsChart;
-            const tpsTimeAxis = hasTpsData ? tpsTimes : times;
-            const tpsDatasets = apis.map(api => {
-                const color = getApiColor(api);
-                const values = tpsTimeAxis.map(t => {
-                    if (hasTpsData) return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
-                    const slot = timeline[t] && timeline[t][api];
-                    return slot ? slot.count : 0;
-                });
-                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (tpsType === 'line' ? '10' : '80'), borderWidth: 2 };
-                if (tpsType === 'line') Object.assign(base, { tension: 0.4, pointRadius: 0 });
-                if (tpsType === 'bar') Object.assign(base, { borderRadius: 4 });
-                if (tpsType === 'radar') Object.assign(base, { backgroundColor: color + '25', pointRadius: 2, fill: true });
-                return base;
-            });
-            updateChart('tpsChart', tpsType, tpsType === 'radar' ? tpsTimeAxis.filter((_, i) => i % Math.max(1, Math.floor(tpsTimeAxis.length / 12)) === 0) : tpsTimeAxis, tpsType === 'radar' ? apis.map(api => {
-                const sampledTimes = tpsTimeAxis.filter((_, i) => i % Math.max(1, Math.floor(tpsTimeAxis.length / 12)) === 0);
-                const color = getApiColor(api);
-                return { label: api.toUpperCase(), data: sampledTimes.map(t => {
-                    if (hasTpsData) return (tpsTimeline[t] && tpsTimeline[t][api]) ? tpsTimeline[t][api] : 0;
-                    const slot = timeline[t] && timeline[t][api];
-                    return slot ? slot.count : 0;
-                }), borderColor: color, backgroundColor: color + '25', pointRadius: 2, borderWidth: 2, fill: true };
-            }) : tpsDatasets, 'Throughput [초당 처리량] (TPS)');
-
-            // p99.9
-            const p99Type = chartTypeState.p99Chart;
-            const p99Labels = apis.map(a => a.toUpperCase());
-            const p99Values = apis.map(api => apiP999[api]);
-            const p99Colors = apis.map(a => getApiColor(a));
-
-            if (p99Type === 'doughnut' || p99Type === 'polarArea') {
-                updateChart('p99Chart', p99Type, p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
-                    backgroundColor: p99Colors.map(c => c + '80'), borderColor: p99Colors, borderWidth: 2
-                }], 'ms');
-            } else if (p99Type === 'radar') {
-                updateChart('p99Chart', 'radar', p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
-                    backgroundColor: 'rgba(59,130,246,0.15)', borderColor: '#3b82f6', borderWidth: 2,
-                    pointRadius: 4, pointBackgroundColor: p99Colors, fill: true
-                }], 'ms');
-            } else {
-                updateChart('p99Chart', 'bar', p99Labels, [{
-                    label: 'p99.9 Tail Latency (ms)', data: p99Values,
-                    backgroundColor: p99Colors.map(c => c + '80'), borderColor: p99Colors,
-                    borderWidth: 2, borderRadius: 8
-                }], 'ms');
-            }
-
-            // Error Rate Chart
-            renderErrorAnalysis();
-
-            // Timing Breakdown Charts (HTTP만 — gRPC는 이 metric에 미포함)
-            renderTimingChart(waitingData, 'waitingChart', 'waiting-section', 'Server Waiting [서버 처리 대기] (ms)');
-            renderTimingChart(blockedData, 'blockedChart', 'blocked-section', 'Blocked [커넥션 대기] (ms)');
-            renderTimingChart(sendingData, 'sendingChart', 'sending-section', 'Sending [요청 전송] (ms)');
-            renderTimingChart(receivingData, 'receivingChart', 'receiving-section', 'Receiving [응답 수신] (ms)');
-
-            // Cross-VUs Comparison Charts (2개 이상 VUs 그룹이 감지될 때만)
-            renderCrossVusCharts();
-
-            // Resource Monitoring Chart (cAdvisor 데이터)
-            renderResourceChart();
-        }
-
-        function renderCrossVusCharts() {
-            const vusKeys = [...detectedVusGroups].sort((a, b) => parseInt(a) - parseInt(b));
-            const show = vusKeys.length >= 2;
-
-            document.getElementById('cross-vus-section').style.display = show ? '' : 'none';
-            document.getElementById('cross-vus-avg-section').style.display = show ? '' : 'none';
-            document.getElementById('cross-vus-tps-section').style.display = show ? '' : 'none';
-
-            if (!show) return;
-
-            // 현재 선택된 TC 필터에서 첫 번째 TC 사용 (또는 전체 합산)
-            const activeTcs = [...activeFilters.tc];
-            const activeApis = [...activeFilters.api];
-
-            // API별 색상
-            const apiColors = { rest: '#3b82f6', graphql: '#ec4899', grpc: '#10b981', grpc_direct: '#10b981', grpc_envoy: '#a855f7' };
-            function getColor(api) {
-                for (const [k, v] of Object.entries(apiColors)) { if (api.includes(k)) return v; }
-                return '#64748b';
-            }
-
-            // 모든 TC를 합산하여 VUs별 API별 통계 계산
-            const allApis = new Set();
-            const p99Data = {}; // {vus: {api: value}}
-            const avgData = {};
-            const tpsData = {};
-
-            for (const vus of vusKeys) {
-                p99Data[vus] = {};
-                avgData[vus] = {};
-                tpsData[vus] = {};
-                const vusGroup = crossVusData[vus] || {};
-
-                for (const tc of activeTcs) {
-                    const tcData = vusGroup[tc] || {};
-                    for (const api of Object.keys(tcData)) {
-                        if (!activeApis.some(a => a === api)) continue;
-                        allApis.add(api);
-                        if (!p99Data[vus][api]) { p99Data[vus][api] = []; avgData[vus][api] = []; }
-                        p99Data[vus][api].push(...tcData[api]);
-                        avgData[vus][api].push(...tcData[api]);
-                    }
-                }
-
-                // p99.9와 avg 계산
-                for (const api of Object.keys(p99Data[vus])) {
-                    const vals = p99Data[vus][api].sort((a, b) => a - b);
-                    if (vals.length > 0) {
-                        const idx = Math.floor((vals.length - 1) * 0.999);
-                        p99Data[vus][api] = vals[idx];
-                        avgData[vus][api] = vals.reduce((s, v) => s + v, 0) / vals.length;
-                    } else {
-                        p99Data[vus][api] = 0;
-                        avgData[vus][api] = 0;
-                    }
-                }
-
-                // TPS: reqsData에서 계산
-                const vusReqs = reqsData.filter(d => activeTcs.includes(d.tc));
-                const timeSet = new Set(vusReqs.map(d => d.time));
-                const numSecs = Math.max(timeSet.size, 1);
-                for (const api of allApis) {
-                    const count = vusReqs.filter(d => d.api === api).length;
-                    tpsData[vus][api] = count > 0 ? count / numSecs / vusKeys.length : 0;
-                }
-            }
-
-            const apis = [...allApis].sort();
-            const isDark = document.body.getAttribute('data-theme') === 'dark';
-            const textColor = isDark ? '#e2e8f0' : '#0f172a';
-            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-
-            function renderGroupedBar(chartId, dataMap, title, yLabel) {
-                if (charts[chartId]) charts[chartId].destroy();
-                const barWidth = 0.7 / apis.length;
-                const datasets = apis.map((api, i) => {
-                    const color = getColor(api);
-                    const offset = (i - (apis.length - 1) / 2) * barWidth;
-                    return {
-                        label: api.toUpperCase(),
-                        data: vusKeys.map(v => dataMap[v] && dataMap[v][api] ? dataMap[v][api] : 0),
-                        backgroundColor: color + '99',
-                        borderColor: color,
-                        borderWidth: 2,
-                        borderRadius: 4,
-                        barPercentage: 0.8,
-                        categoryPercentage: 0.85,
-                    };
-                });
-
-                const ctx = document.getElementById(chartId);
-                if (!ctx) return;
-                charts[chartId] = new Chart(ctx, {
-                    type: 'bar',
-                    data: { labels: vusKeys.map(v => v + ' VUs'), datasets },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        animation: chartAnimationEnabled ? { duration: 600 } : false,
-                        plugins: {
-                            legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } },
-                            title: { display: false },
-                        },
-                        scales: {
-                            x: { ticks: { color: textColor, font: { weight: 'bold' } }, grid: { color: gridColor } },
-                            y: { title: { display: true, text: yLabel, color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } },
-                        },
-                    }
-                });
-            }
-
-            renderGroupedBar('crossVusP99Chart', p99Data, 'p99.9 by VUs', 'p99.9 Latency (ms)');
-            renderGroupedBar('crossVusAvgChart', avgData, 'Avg Latency by VUs', 'Average Latency (ms)');
-            renderGroupedBar('crossVusTpsChart', tpsData, 'TPS by VUs', 'Throughput (TPS)');
-        }
-
-        function renderResourceChart() {
-            const memSection = document.getElementById('resource-mem-section');
-            const cpuSection = document.getElementById('resource-cpu-section');
-
-            if (resourceData.length === 0) {
-                if (memSection) memSection.style.display = 'none';
-                if (cpuSection) cpuSection.style.display = 'none';
-                return;
-            }
-            if (memSection) memSection.style.display = '';
-            if (cpuSection) cpuSection.style.display = '';
-
-            const containers = [...new Set(resourceData.map(d => d.container))].sort();
-            const containerColors = {
-                benchmark_rest: '#3b82f6', benchmark_graphql: '#ec4899',
-                benchmark_grpc: '#10b981', benchmark_db: '#f59e0b',
-                benchmark_envoy: '#a855f7'
-            };
-            const isDark = document.body.getAttribute('data-theme') === 'dark';
-            const textColor = isDark ? '#e2e8f0' : '#0f172a';
-            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-
-            // ── Memory 차트 ──
-            const memTimeline = {};
-            for (const d of resourceData) {
-                if (!memTimeline[d.time]) memTimeline[d.time] = {};
-                if (!memTimeline[d.time][d.container]) memTimeline[d.time][d.container] = { sum: 0, count: 0 };
-                memTimeline[d.time][d.container].sum += d.memory_mb;
-                memTimeline[d.time][d.container].count++;
-            }
-            const memTimes = Object.keys(memTimeline).sort();
-
-            const memDatasets = containers.map(c => {
-                const color = containerColors[c] || '#64748b';
-                return {
-                    label: c.replace('benchmark_', '').toUpperCase(),
-                    data: memTimes.map(t => { const s = memTimeline[t]?.[c]; return s ? (s.sum / s.count).toFixed(1) : null; }),
-                    borderColor: color, backgroundColor: color + '15', borderWidth: 2,
-                    tension: 0.15, pointRadius: 0, fill: true
-                };
-            });
-
-            if (charts['resourceMemChart']) charts['resourceMemChart'].destroy();
-            const memCtx = document.getElementById('resourceMemChart');
-            if (memCtx) {
-                charts['resourceMemChart'] = new Chart(memCtx, {
-                    type: 'line', data: { labels: memTimes, datasets: memDatasets },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        animation: chartAnimationEnabled ? { duration: 600 } : false,
-                        plugins: { legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } } },
-                        scales: {
-                            x: { ticks: { color: textColor, maxTicksLimit: 12, maxRotation: 45 }, grid: { color: gridColor } },
-                            y: { title: { display: true, text: 'Memory (MB)', color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } }
-                        }
-                    }
-                });
-            }
-
-            // ── CPU 사용률 차트 (인접 샘플 delta 기반) ──
-            // cpu_ns는 누적값이므로 (현재 - 이전) / (시간차 ns) * 100 = %
-            const INTERVAL_NS = CADVISOR_INTERVAL_SEC * 1e9; // 수집 간격 추정
-            const sorted = [...resourceData].sort((a, b) => a.time < b.time ? -1 : 1);
-            const prevCpu = {}; // container → 이전 cpu_ns
-            const cpuTimeline = {};
-
-            for (const d of sorted) {
-                const prev = prevCpu[d.container];
-                if (prev !== undefined && d.cpu > prev) {
-                    const deltaNs = d.cpu - prev;
-                    // 수집 간격 2초 = 2e9 ns, CPU 코어 1개 기준 100%
-                    const pct = (deltaNs / 2e9) * 100;
-                    if (!cpuTimeline[d.time]) cpuTimeline[d.time] = {};
-                    cpuTimeline[d.time][d.container] = Math.min(pct, 400); // 멀티코어라 400%까지 가능
-                }
-                prevCpu[d.container] = d.cpu;
-            }
-
-            const cpuTimes = Object.keys(cpuTimeline).sort();
-            if (cpuTimes.length < 2) {
-                if (cpuSection) cpuSection.style.display = 'none';
-                return;
-            }
-
-            const cpuDatasets = containers.map(c => {
-                const color = containerColors[c] || '#64748b';
-                return {
-                    label: c.replace('benchmark_', '').toUpperCase(),
-                    data: cpuTimes.map(t => cpuTimeline[t]?.[c]?.toFixed(1) ?? null),
-                    borderColor: color, backgroundColor: color + '15', borderWidth: 2,
-                    tension: 0.15, pointRadius: 0, fill: true
-                };
-            });
-
-            if (charts['resourceCpuChart']) charts['resourceCpuChart'].destroy();
-            const cpuCtx = document.getElementById('resourceCpuChart');
-            if (cpuCtx) {
-                charts['resourceCpuChart'] = new Chart(cpuCtx, {
-                    type: 'line', data: { labels: cpuTimes, datasets: cpuDatasets },
-                    options: {
-                        responsive: true, maintainAspectRatio: false,
-                        animation: chartAnimationEnabled ? { duration: 600 } : false,
-                        plugins: { legend: { labels: { color: textColor, font: { size: 11, weight: 'bold' } } } },
-                        scales: {
-                            x: { ticks: { color: textColor, maxTicksLimit: 12, maxRotation: 45 }, grid: { color: gridColor } },
-                            y: { title: { display: true, text: 'CPU Usage (%)', color: textColor, font: { weight: 'bold' } }, ticks: { color: textColor }, grid: { color: gridColor } }
-                        }
-                    }
-                });
-            }
-        }
-
-        function renderErrorAnalysis() {
-            const section = document.getElementById('error-section');
-            if (errorData.length === 0) {
-                if (section) section.style.display = 'none';
-                return;
-            }
-            if (section) section.style.display = '';
-
-            const filtered = errorData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
-            if (filtered.length === 0) {
-                if (section) section.style.display = 'none';
-                return;
-            }
-
-            // TC+API별 에러율 집계
-            const groups = {};
-            for (let i = 0; i < filtered.length; i++) {
-                const d = filtered[i];
-                const key = `${d.tc}|${d.api}`;
-                if (!groups[key]) groups[key] = { total: 0, failed: 0 };
-                groups[key].total++;
-                groups[key].failed += d.failed;
-            }
-
-            // 에러율 요약 테이블
-            const summaryEl = document.getElementById('error-summary');
-            const rows = Object.entries(groups).map(([key, g]) => {
-                const [tc, api] = key.split('|');
-                const rate = (g.failed / g.total) * 100;
-                const rateStr = rate.toFixed(2);
-                const color = getApiColor(api);
-                const barWidth = Math.min(rate * 2, 100); // 50%에서 바 꽉 참
-                const rateColor = rate === 0 ? '#10b981' : rate < 1 ? '#f59e0b' : rate < 5 ? '#f97316' : '#ef4444';
-                return { tc, api, total: g.total, failed: g.failed, rate, rateStr, color, barWidth, rateColor };
-            }).sort((a, b) => b.rate - a.rate);
-
-            summaryEl.innerHTML = `
-                <div style="overflow-x:auto;">
-                    <table class="w-full" style="font-size:0.78rem;">
-                        <thead><tr style="border-bottom:1px solid var(--border);">
-                            <th class="text-left py-2 px-2 t-text-muted font-bold">TC</th>
-                            <th class="text-left py-2 px-2 t-text-muted font-bold">API</th>
-                            <th class="text-right py-2 px-2 t-text-muted font-bold">총 요청</th>
-                            <th class="text-right py-2 px-2 t-text-muted font-bold">실패</th>
-                            <th class="text-right py-2 px-2 t-text-muted font-bold" style="min-width:160px;">에러율</th>
-                        </tr></thead>
-                        <tbody>${rows.map(d => `<tr style="border-bottom:1px solid var(--border);">
-                            <td class="py-1.5 px-2 font-bold text-xs uppercase t-text-dim">${d.tc}</td>
-                            <td class="py-1.5 px-2"><span class="px-2 py-0.5 rounded text-xs font-black uppercase" style="color:${d.color};background:${d.color}1a;border:1px solid ${d.color}40">${d.api}</span></td>
-                            <td class="text-right py-1.5 px-2 t-text-muted font-mono text-xs">${d.total.toLocaleString()}</td>
-                            <td class="text-right py-1.5 px-2 font-mono text-xs" style="color:${d.rateColor};font-weight:700;">${d.failed.toLocaleString()}</td>
-                            <td class="text-right py-1.5 px-2"><div style="display:flex;align-items:center;gap:0.5rem;justify-content:flex-end;">
-                                <div style="flex:1;max-width:80px;height:6px;background:var(--bg-body);border-radius:3px;overflow:hidden;">
-                                    <div style="width:${d.barWidth}%;height:100%;background:${d.rateColor};border-radius:3px;"></div>
-                                </div>
-                                <span class="font-mono font-bold text-xs" style="color:${d.rateColor};min-width:50px;">${d.rateStr}%</span>
-                            </div></td>
-                        </tr>`).join('')}</tbody>
-                    </table>
-                </div>`;
-
-            // 시계열 에러율 차트
-            const errorTimeline = {};
-            for (let i = 0; i < filtered.length; i++) {
-                const d = filtered[i];
-                if (!errorTimeline[d.time]) errorTimeline[d.time] = {};
-                if (!errorTimeline[d.time][d.api]) errorTimeline[d.time][d.api] = { total: 0, failed: 0 };
-                errorTimeline[d.time][d.api].total++;
-                errorTimeline[d.time][d.api].failed += d.failed;
-            }
-
-            const errTimes = Object.keys(errorTimeline).sort();
-            const errApis = [...new Set(filtered.map(d => d.api))].sort();
-            const errType = chartTypeState.errorChart;
-
-            const errDatasets = errApis.map(api => {
-                const color = getApiColor(api);
-                const values = errTimes.map(t => {
-                    const slot = errorTimeline[t] && errorTimeline[t][api];
-                    if (!slot || slot.total === 0) return null;
-                    return ((slot.failed / slot.total) * 100).toFixed(2);
-                });
-                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (errType === 'line' ? '15' : '80'), borderWidth: 2 };
-                if (errType === 'line') Object.assign(base, { tension: 0.3, pointRadius: 0, fill: true });
-                if (errType === 'bar') Object.assign(base, { borderRadius: 4 });
-                return base;
-            });
-
-            updateChart('errorChart', errType, errTimes, errDatasets, 'Error Rate [에러율] (%)');
-        }
-
-        function renderTimingChart(dataArr, chartId, sectionId, yLabel) {
-            const section = document.getElementById(sectionId);
-            if (dataArr.length === 0) {
-                if (section) section.style.display = 'none';
-                return;
-            }
-            if (section) section.style.display = '';
-
-            const filtered = dataArr.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
-            if (filtered.length === 0) {
-                if (section) section.style.display = 'none';
-                return;
-            }
-
-            const timeline = {};
-            for (let i = 0; i < filtered.length; i++) {
-                const d = filtered[i];
-                if (!timeline[d.time]) timeline[d.time] = {};
-                if (!timeline[d.time][d.api]) timeline[d.time][d.api] = { sum: 0, count: 0 };
-                timeline[d.time][d.api].sum += d.value;
-                timeline[d.time][d.api].count++;
-            }
-
-            const times = Object.keys(timeline).sort();
-            const apis = [...new Set(filtered.map(d => d.api))].sort();
-            const chartType = chartTypeState[chartId];
-
-            const datasets = apis.map(api => {
-                const color = getApiColor(api);
-                const values = times.map(t => {
-                    const slot = timeline[t] && timeline[t][api];
-                    return slot ? (slot.sum / slot.count).toFixed(2) : null;
-                });
-                const base = { label: api.toUpperCase(), data: values, borderColor: color, backgroundColor: color + (chartType === 'line' ? '15' : '80'), borderWidth: 2 };
-                if (chartType === 'line') Object.assign(base, { tension: 0.15, pointRadius: 0, fill: true });
-                if (chartType === 'bar') Object.assign(base, { borderRadius: 4 });
-                return base;
-            });
-
-            updateChart(chartId, chartType, times, datasets, yLabel);
-        }
-
-        function updateChart(id, type, labels, datasets, yLabel) {
-            if (charts[id]) charts[id].destroy();
-            const isDark = document.body.getAttribute('data-theme') === 'dark';
-            const textColor = isDark ? '#e2e8f0' : '#0f172a';
-            const gridColor = isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)';
-
-            const isRadial = (type === 'radar' || type === 'polarArea' || type === 'doughnut');
-
-            const options = {
-                responsive: true, maintainAspectRatio: false,
-                animation: chartAnimationEnabled ? { duration: 300 } : false,
-                interaction: { mode: isRadial ? 'nearest' : 'index', intersect: isRadial },
-                plugins: {
-                    legend: { position: 'top', labels: { color: textColor, font: { size: 11, weight: '700' }, usePointStyle: true, boxWidth: 10, padding: 15 } },
-                    tooltip: {
-                        backgroundColor: isDark ? '#1e293b' : '#ffffff',
-                        titleFont: { size: 12, weight: 'bold' }, bodyFont: { size: 11 },
-                        titleColor: isDark ? '#ffffff' : '#0f172a', bodyColor: isDark ? '#e2e8f0' : '#0f172a',
-                        borderColor: '#3b82f6', borderWidth: 1, padding: 10
-                    }
-                }
-            };
-
-            if (isRadial) {
-                if (type === 'radar') {
-                    options.scales = {
-                        r: {
-                            beginAtZero: true, grid: { color: gridColor }, angleLines: { color: gridColor },
-                            pointLabels: { color: textColor, font: { size: 10, weight: '600' } },
-                            ticks: { color: textColor, backdropColor: 'transparent', font: { size: 9 } }
-                        }
-                    };
-                }
-            } else {
-                options.scales = {
-                    y: {
-                        beginAtZero: true, grid: { color: gridColor, lineWidth: 1 },
-                        title: { display: true, text: yLabel, color: textColor, font: { size: 12, weight: '700' } },
-                        ticks: { color: textColor, font: { size: 11, weight: '600' } }
-                    },
-                    x: {
-                        grid: { display: false },
-                        ticks: { color: textColor, font: { size: 11, weight: '600' }, autoSkip: true, maxTicksLimit: 12 }
-                    }
-                };
-            }
-
-            charts[id] = new Chart(document.getElementById(id).getContext('2d'), {
-                type, data: { labels, datasets }, options
-            });
-        }
-
-        function getApiColor(api) {
-            const a = api.toLowerCase();
-            if (a.includes('grpc_direct')) return '#10b981';
-            if (a.includes('grpc_envoy')) return '#a855f7';
-            if (a.includes('grpc')) return '#10b981';
-            if (a.includes('gql') || a.includes('graphql')) return '#ec4899';
-            if (a.includes('rest')) return '#3b82f6';
-            return '#64748b';
-        }
-
-        function resetData() { location.reload(); }
-        function exportToCSV() {
-            const filtered = fullData.filter(d => activeFilters.tc.has(d.tc) && activeFilters.api.has(d.api));
-            if (filtered.length === 0) return;
-            const csv = Papa.unparse(filtered);
-            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-            const link = document.createElement("a");
-            link.href = URL.createObjectURL(blob);
-            link.setAttribute("download", `gigant_report_${new Date().getTime()}.csv`);
-            link.click();
-        }
-
-        /* ── Chart Export Functions ── */
-        const chartMetricNames = {
-            latencyChart: 'Latency',
-            tpsChart: 'TPS',
-            p99Chart: 'p99.9_Tail_Latency',
-            errorChart: 'Error_Rate',
-            waitingChart: 'Server_Waiting',
-            blockedChart: 'Connection_Blocked',
-            sendingChart: 'Request_Sending',
-            receivingChart: 'Response_Receiving'
-        };
-
-        function buildExportFileName(chartId, ext) {
-            const tcs = Array.from(activeFilters.tc).sort();
-            let tcPart;
-            if (tcs.length === 1) {
-                tcPart = tcs[0].toUpperCase();
-            } else if (tcs.length <= 3) {
-                tcPart = tcs.map(t => t.toUpperCase().replace('TC','')).join('-');
-            } else {
-                tcPart = `${tcs.length}TCs`;
-            }
-
-            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
-            const chartType = chartTypeState[chartId] || 'chart';
-            const typePart = chartType.charAt(0).toUpperCase() + chartType.slice(1);
-            const metricPart = chartMetricNames[chartId] || chartId;
-
-            return `${tcPart}_${vusPart}_${typePart}_${metricPart}.${ext}`;
-        }
-
-        let toastTimeout;
-        function showToast(msg, duration = 2200) {
-            let toast = document.getElementById('export-toast');
-            if (!toast) {
-                toast = document.createElement('div');
-                toast.id = 'export-toast';
-                toast.className = 'export-toast';
-                document.body.appendChild(toast);
-            }
-            toast.textContent = msg;
-            toast.classList.add('show');
-            if (toastTimeout) clearTimeout(toastTimeout);
-            toastTimeout = setTimeout(() => toast.classList.remove('show'), duration);
-        }
-
-        function toggleExportMenu(e, chartId) {
-            e.stopPropagation();
-            document.querySelectorAll('.chart-export-dropdown').forEach(d => {
-                if (d.id !== 'dropdown-' + chartId) d.classList.remove('show');
-            });
-            const dd = document.getElementById('dropdown-' + chartId);
-            dd.classList.toggle('show');
-        }
-
-        document.addEventListener('click', () => {
-            document.querySelectorAll('.chart-export-dropdown').forEach(d => d.classList.remove('show'));
-        });
-
-        function renderChartToDataURL(chartId, format) {
-            const chart = charts[chartId];
-            if (!chart) return null;
-
-            const scale = 3;
-            const srcCanvas = chart.canvas;
-            const w = srcCanvas.width;
-            const h = srcCanvas.height;
-
-            const exportCanvas = document.createElement('canvas');
-            exportCanvas.width = w * scale;
-            exportCanvas.height = h * scale;
-            const ctx = exportCanvas.getContext('2d');
-
-            const isDark = document.body.getAttribute('data-theme') === 'dark';
-            ctx.fillStyle = isDark ? '#0f172a' : '#ffffff';
-            ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
-
-            ctx.scale(scale, scale);
-            ctx.drawImage(srcCanvas, 0, 0, w, h);
-
-            let mimeType;
-            switch (format) {
-                case 'jpg': mimeType = 'image/jpeg'; break;
-                case 'webp': mimeType = 'image/webp'; break;
-                default: mimeType = 'image/png';
-            }
-            const quality = format === 'png' ? undefined : 0.95;
-            return exportCanvas.toDataURL(mimeType, quality);
-        }
-
-        function exportChart(chartId, format) {
-            document.querySelectorAll('.chart-export-dropdown').forEach(d => d.classList.remove('show'));
-            if (!charts[chartId]) { showToast('⚠️ 차트 데이터가 없습니다'); return; }
-
-            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const dataURL = renderChartToDataURL(chartId, format);
-            if (!dataURL) return;
-
-            const fileName = buildExportFileName(chartId, ext);
-            const link = document.createElement('a');
-            link.download = fileName;
-            link.href = dataURL;
-            link.click();
-
-            showToast(`✅ ${chartMetricNames[chartId]} 차트 저장 완료`);
-        }
-
-        // 현재 선택된 뷰의 묶음 데이터만 다운로드 (기존 기능)
-        async function exportAllCharts() {
-            const format = document.getElementById('export-all-format').value;
-            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart', 'waitingChart', 'blockedChart', 'sendingChart', 'receivingChart'];
-            const validIds = ids.filter(id => charts[id]);
-
-            if (validIds.length === 0) {
-                showToast('⚠️ 내보낼 차트가 없습니다');
-                return;
-            }
-
-            showLoading('ZIPPING CURRENT VIEW...');
-
-            const zip = new JSZip();
-            validIds.forEach(id => {
-                const dataURL = renderChartToDataURL(id, format);
-                if (dataURL) {
-                    const base64 = dataURL.split(',')[1];
-                    const fileName = buildExportFileName(id, ext);
-                    zip.file(fileName, base64, { base64: true });
-                }
-            });
-
-            const tcs = Array.from(activeFilters.tc).sort();
-            let tcPart = (tcs.length === 1) ? tcs[0].toUpperCase() : (tcs.length <= 3) ? tcs.map(t => t.toUpperCase().replace('TC','')).join('-') : `${tcs.length}TCs`;
-            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
-            const zipName = `${tcPart}_${vusPart}_Charts.zip`;
-
-            const blob = await zip.generateAsync({ type: 'blob' });
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = zipName;
-            link.click();
-            URL.revokeObjectURL(link.href);
-
-            hideLoading();
-            showToast(`📦 현재 선택된 ${validIds.length}개 차트 ZIP 저장 완료!`);
-        }
-
-        // 개별 TC들을 순회하며 폴더 구조로 묶어서 다운로드 (추가 기능)
-        async function exportAllTCCharts() {
-            const format = document.getElementById('export-all-format').value;
-            const ext = format === 'jpg' ? 'jpg' : format === 'webp' ? 'webp' : 'png';
-            const ids = ['latencyChart', 'tpsChart', 'p99Chart', 'errorChart', 'waitingChart', 'blockedChart', 'sendingChart', 'receivingChart'];
-
-            if (filters.tc.size === 0) {
-                showToast('⚠️ 내보낼 데이터가 없습니다');
-                return;
-            }
-
-            const targetTCs = Array.from(filters.tc).sort();
-            showLoading('RENDERING CHARTS...');
-
-            const backupTc = new Set(activeFilters.tc);
-            const backupApi = new Set(activeFilters.api);
-            chartAnimationEnabled = false; // 캡처 시 오작동 방지를 위해 애니메이션 비활성화
-
-            const zip = new JSZip();
-            const vusPart = sessionMeta.vus ? `${sessionMeta.vus}VUs` : 'N-A';
-
-            for (const tc of targetTCs) {
-                activeFilters.tc.clear();
-                activeFilters.tc.add(tc);
-                activeFilters.api.clear();
-                if (tcApiMap[tc]) {
-                    tcApiMap[tc].forEach(a => activeFilters.api.add(a));
-                }
-
-                updateAll();
-                
-                // 차트가 캔버스에 완전히 렌더링될 수 있도록 잠시 대기
-                await new Promise(r => setTimeout(r, 200));
-
-                const tcNameUpper = tc.toUpperCase();
-                const folderName = `${tcNameUpper}_${vusPart}_Charts`;
-                const folder = zip.folder(folderName);
-
-                ids.forEach(id => {
-                    if (charts[id]) {
-                        const dataURL = renderChartToDataURL(id, format);
-                        if (dataURL) {
-                            const base64 = dataURL.split(',')[1];
-                            const fileName = buildExportFileName(id, ext);
-                            folder.file(fileName, base64, { base64: true });
-                        }
-                    }
-                });
-            }
-
-            // 상태 원상 복구
-            activeFilters.tc = backupTc;
-            activeFilters.api = backupApi;
-            chartAnimationEnabled = true;
-            updateAll();
-
-            showLoading('ZIPPING FILES...');
-            
-            // 최상단 ZIP 파일명 설정
-            const zipName = sessionMeta.vus ? `VUs ${sessionMeta.vus}.zip` : 'All_TC_Charts.zip';
-            const blob = await zip.generateAsync({ type: 'blob' });
-            
-            const link = document.createElement('a');
-            link.href = URL.createObjectURL(blob);
-            link.download = zipName;
-            link.click();
-            URL.revokeObjectURL(link.href);
-
-            hideLoading();
-            showToast(`✅ 모든 TC(${targetTCs.length}개) 폴더 압축 완료!`);
-        }
-    </script>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:700">TC (테스트 케이스)</span>
+        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('tc')">ALL</span>
+      </div>
+      <div id="fTc" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
+    <div style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
+        <span style="font-size:11px;font-weight:700">Architecture (API)</span>
+        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('api')">ALL</span>
+      </div>
+      <div id="fApi" style="display:flex;flex-wrap:wrap;gap:4px"></div>
+    </div>
+  </div>
+  <div style="padding:10px 14px;border-top:1px solid var(--border)">
+    <button onclick="exportZip()" style="width:100%;padding:9px;background:var(--text);color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Export Charts (ZIP)</button>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+  <div id="summaryBar" style="padding:12px 24px;border-bottom:1px solid var(--border);background:#fff;display:none">
+    <div style="display:flex;gap:24px;flex-wrap:wrap" id="sumCards"></div>
+  </div>
+  <div style="flex:1;overflow-y:auto;padding:24px" id="mainWrap">
+    <div id="emptyMsg" style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;color:var(--sub)">
+      <div style="font-size:44px;opacity:.3;margin-bottom:12px">&#128202;</div>
+      <div style="font-size:16px;font-weight:700">No Data</div>
+      <div style="font-size:12px;margin-top:4px">좌측에서 CSV 파일 업로드</div>
+    </div>
+    <div id="content" style="display:none"></div>
+  </div>
+</main>
+
+<script>
+// ============ STATE ============
+const S={m:[],r:[],g:[],meta:{vus:new Set(),tc:new Set(),api:new Set(),mt:new Set()},f:{vus:[],tc:[],api:[]},charts:{}};
+const C={rest:'#3b82f6',graphql:'#ec4899',grpc:'#22c55e',grpc_direct:'#22c55e',grpc_envoy:'#a855f7',grpc_part1:'#86efac',grpc_part2:'#4ade80',rest_part1:'#93c5fd',rest_part2:'#60a5fa',rest_error:'#3b82f6',graphql_error:'#ec4899',grpc_error:'#22c55e',REST:'#3b82f6',GRAPHQL:'#ec4899',GRPC:'#22c55e',DB:'#f59e0b',ENVOY:'#a855f7'};
+const TL={tc1:'단건 조회',tc2:'페이징',tc3:'N+1 언더페칭',tc4:'부분 필드 추출',tc5:'다중 조인',tc6:'트랜잭션 쓰기',tc7:'에러 처리',tc8_spike:'스파이크 부하',tc9_simple:'프록시 단건',tc9_heavy:'프록시 대용량',tc9_error:'프록시 에러'};
+const ML={http_req_duration:'Latency — 요청~응답 전체 소요시간',grpc_req_duration:'gRPC Latency — gRPC 요청 전체 소요시간',http_reqs:'Throughput — 초당 완료된 HTTP 요청 수',http_req_waiting:'TTFB (Waiting) — 서버가 첫 바이트를 보낼 때까지의 대기 시간. 서버 비즈니스 로직+DB 처리 시간 반영',http_req_blocked:'Blocked — 요청이 TCP 커넥션 풀 대기에 소비한 시간. 높으면 커넥션 부족',http_req_connecting:'Connecting — TCP 핸드셰이크 시간. gRPC는 HTTP/2 다중화로 0에 수렴',http_req_sending:'Sending — 요청 직렬화+전송 시간. Protobuf(gRPC)가 JSON(REST)보다 효율적',http_req_receiving:'Receiving — 응답 수신+역직렬화 시간. 대용량 페이로드(TC2,TC5)에서 JSON 비용 확인',http_req_failed:'Error Rate — 실패한 요청 비율. 0=성공, 1=실패. k6는 HTTP 상태 코드 기반 판정',checks:'Checks — k6 check() 통과 여부. 1=통과, 0=실패. 비즈니스 로직 정합성 검증'};
+const MU={http_req_duration:'ms',grpc_req_duration:'ms',http_reqs:'count',http_req_waiting:'ms',http_req_blocked:'ms',http_req_connecting:'ms',http_req_sending:'ms',http_req_receiving:'ms',http_req_failed:'0/1',checks:'0/1'};
+function gc(a){const k=a.toLowerCase();return C[k]||C[k.replace(/ /g,'_')]||'#64748b'}
+
+// ============ PARSE ============
+function handleDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('dragover');handleFiles(e.dataTransfer.files)}
+async function handleFiles(files){
+  if(!files.length)return;document.getElementById('fileCount').textContent=files.length+'개 처리 중...';
+  let done=0;
+  for(const file of files){const text=await file.text();const fn=file.name.toLowerCase();const hdr=text.split('\n')[0]||'';
+    const isRes=fn.includes('resource_')||hdr.includes('cpu_perc')||hdr.includes('cpu_ns');
+    let vu='unknown';const m=fn.match(/_(\d+)_\d{8}/);if(m)vu=m[1];
+    Papa.parse(text,{header:true,skipEmptyLines:true,complete:res=>{
+      if(isRes)parseRes(res.data,fn,vu);else parseMet(res.data,fn,vu);
+      if(++done===files.length)finalize()}})}}
+function parseMem(s){if(!s)return 0;const p=s.split('/')[0].trim();const m=p.match(/([\d.]+)\s*(\w+)/);if(!m)return parseFloat(s)||0;const v=parseFloat(m[1]),u=m[2].toUpperCase();if(u.includes('G'))return v*1024;if(u.includes('K'))return v/1024;return v}
+function parseRes(data,fn,vu){let mode='standard';const mm=fn.match(/resource_(.+?)_\d+_\d{8}/);if(mm)mode=mm[1];
+  data.forEach(row=>{if(!row.time||!row.container)return;const c=row.container.replace('benchmark_','').toUpperCase();
+    const cpu=parseFloat((row.cpu_perc||row.cpu_ns||'0').toString().replace('%',''));
+    const mem=parseMem(row.mem_usage||row.memory_mb);
+    S.r.push({time:new Date(row.time).getTime(),container:c,cpu,memory:mem,mode,vus:vu});S.meta.vus.add(vu)})}
+function parseMet(data,fn,vu){const mn=fn.replace('.csv','').replace('_summary','');
+  data.forEach(row=>{const val=row.value;if(val===undefined||val===null||val==='')return;if(!row.time)return;
+    const tc=(row.tc||'').toLowerCase().trim();const api=(row.api||'').toLowerCase().trim();
+    const vus=row.vus_group||vu;const mode=row.test_type||'standard';const metric=row.name||mn;const v=parseFloat(val);
+    if(metric==='vus'||metric==='checks'){S.g.push({metric,time:new Date(row.time).getTime(),vus:String(vus),value:v});S.meta.vus.add(String(vus));return}
+    if(!api||api==='unknown')return;
+    S.m.push({metric,time:new Date(row.time).getTime(),tc,api,vus:String(vus),mode,value:v});
+    if(tc)S.meta.tc.add(tc);S.meta.api.add(api);S.meta.vus.add(String(vus));S.meta.mt.add(metric)})}
+function finalize(){
+  document.getElementById('fileCount').textContent=(S.m.length+S.r.length)+' pts';
+  document.getElementById('emptyMsg').style.display='none';document.getElementById('content').style.display='';
+  document.getElementById('filterPanel').style.display='';document.getElementById('summaryBar').style.display='';
+  S.f.vus=[...S.meta.vus].sort((a,b)=>parseInt(a)-parseInt(b));
+  S.f.tc=[...S.meta.tc].sort();S.f.api=[...S.meta.api].sort();
+  buildFilters();renderAll()}
+
+// ============ FILTERS (독립형 — TC/API 종속 없음) ============
+function buildFilters(){
+  bChips('fVus','vus',[...S.meta.vus].sort((a,b)=>parseInt(a)-parseInt(b)),v=>v+' VUs');
+  bChips('fTc','tc',[...S.meta.tc].sort(),v=>{const l=TL[v];return v.toUpperCase()+(l?' · '+l:'')});
+  bChips('fApi','api',[...S.meta.api].sort(),v=>v.toUpperCase())}
+function bChips(id,key,all,lFn){const el=document.getElementById(id);el.innerHTML='';
+  all.forEach(v=>{const d=document.createElement('div');d.className='chip'+(S.f[key].includes(v)?' active':'');d.textContent=lFn(v);
+    d.onclick=()=>{const i=S.f[key].indexOf(v);if(i>=0)S.f[key].splice(i,1);else S.f[key].push(v);buildFilters();renderAll()};el.appendChild(d)})}
+function toggleAll(k){const all=k==='vus'?[...S.meta.vus]:k==='tc'?[...S.meta.tc]:[...S.meta.api];
+  S.f[k]=S.f[k].length===all.length?[]:[...all];buildFilters();renderAll()}
+
+// ============ RENDER ============
+function renderAll(){renderSumBar();const c=document.getElementById('content');c.innerHTML='';
+  renderSummaryTable(c);renderResourceSection(c);renderTCCards(c)}
+function dc(id){if(S.charts[id]){S.charts[id].destroy();delete S.charts[id]}}
+function fm(){return S.m.filter(d=>S.f.vus.includes(d.vus)&&S.f.tc.includes(d.tc)&&S.f.api.includes(d.api))}
+function fr(){return S.r.filter(d=>S.f.vus.includes(d.vus))}
+
+// --- Summary Bar ---
+function renderSumBar(){
+  const dur=fm().filter(d=>d.metric.includes('duration'));const n=dur.length;
+  const avg=n?(dur.reduce((s,d)=>s+d.value,0)/n).toFixed(2):'-';
+  const sv=dur.map(d=>d.value).sort((a,b)=>a-b);
+  const p99=n?sv[Math.floor(n*.99)].toFixed(2):'-';const p999=n?sv[Math.min(Math.floor(n*.999),n-1)].toFixed(2):'-';
+  document.getElementById('sumCards').innerHTML=`
+    <div><div class="stat-value" style="color:var(--accent)">${avg}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">Avg Latency</div></div>
+    <div><div class="stat-value" style="color:var(--orange)">${p99}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">p99</div></div>
+    <div><div class="stat-value" style="color:var(--red)">${p999}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">p99.9</div></div>
+    <div><div class="stat-value">${n.toLocaleString()}</div><div class="stat-label">Samples</div></div>`}
+
+// --- Summary Table (Accordion) ---
+function renderSummaryTable(parent){
+  const dur=fm().filter(d=>d.metric.includes('duration'));
+  if(!dur.length)return;
+  const g={};dur.forEach(d=>{const k=d.vus+'|'+d.tc+'|'+d.api;if(!g[k])g[k]={vus:d.vus,tc:d.tc,api:d.api,v:[]};g[k].v.push(d.value)});
+  const rows=Object.values(g).map(x=>{const s=x.v.sort((a,b)=>a-b);const n=s.length;return{vus:x.vus,tc:x.tc.toUpperCase(),api:x.api.toUpperCase(),n,
+    avg:(s.reduce((a,b)=>a+b,0)/n).toFixed(2),min:s[0].toFixed(2),p50:s[Math.floor(n*.5)].toFixed(2),p95:s[Math.floor(n*.95)].toFixed(2),
+    p99:s[Math.floor(n*.99)].toFixed(2),p999:s[Math.min(Math.floor(n*.999),n-1)].toFixed(2),max:s[n-1].toFixed(2)}}).sort((a,b)=>a.tc.localeCompare(b.tc)||a.api.localeCompare(b.api));
+  const div=document.createElement('div');div.className='card';div.style.marginBottom='20px';
+  div.innerHTML=`<div class="accordion-toggle open" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'':'none'">
+    <h3 style="font-size:14px;font-weight:700">Performance Summary <span style="font-size:11px;color:var(--sub);font-weight:500">(${rows.length} groups)</span></h3>
+    <span class="arrow">▼</span></div>
+    <div style="overflow-x:auto;margin-top:12px">
+    <table style="width:100%;font-size:11px;border-collapse:collapse">
+    <thead><tr style="border-bottom:2px solid var(--border)">
+    ${['VUs','TC','API','N','Avg','Min','p50','p95','p99','p99.9','Max'].map((h,i)=>`<th style="padding:7px 5px;font-weight:700;text-align:${i>2?'right':'left'};font-size:10px;color:var(--sub)">${h}</th>`).join('')}
+    </tr></thead><tbody>
+    ${rows.map(r=>`<tr style="border-bottom:1px solid #f1f3f5">
+      <td class="mono" style="padding:5px">${r.vus}</td>
+      <td style="padding:5px"><span style="background:#eff6ff;color:var(--accent);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">${r.tc}</span></td>
+      <td style="padding:5px;color:${gc(r.api)};font-weight:600;font-size:11px">${r.api}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.n}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.avg}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.min}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.p50}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.p95}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.p99}</td>
+      <td class="mono" style="padding:5px;text-align:right;font-weight:700">${r.p999}</td>
+      <td class="mono" style="padding:5px;text-align:right">${r.max}</td></tr>`).join('')}
+    </tbody></table></div>`;
+  parent.appendChild(div)}
+
+// --- Resource Section (모드별 분리 + DB/API 분리) ---
+function renderResourceSection(parent){
+  const rd=fr();if(!rd.length)return;
+  const modes=[...new Set(rd.map(d=>d.mode))].sort();
+  const modeLabels={standard:'Standard (격리 테스트)',proxy_overhead:'Proxy Overhead (Envoy)'};
+  const sec=document.createElement('div');sec.style.marginBottom='20px';
+  sec.innerHTML=`<div class="section-title"><span class="dot" style="background:var(--orange)"></span>Resource Monitoring</div>
+    <p class="desc">cAdvisor/docker stats에서 수집한 컨테이너별 CPU·메모리 사용량. 테스트 모드별로 분리 표시. X축: 경과 시간(초), Y축: CPU(%), Memory(MiB). DB는 메모리 규모가 다르므로 별도 차트로 분리.</p>`;
+  
+  modes.forEach(mode=>{
+    const mData=rd.filter(d=>d.mode===mode).sort((a,b)=>a.time-b.time);
+    if(!mData.length)return;
+    const t0=mData[0].time;
+    const containers=[...new Set(mData.map(d=>d.container))].sort();
+    const apiContainers=containers.filter(c=>c!=='DB');
+    const dbContainers=containers.filter(c=>c==='DB');
+
+    const grid=document.createElement('div');
+    grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px';
+
+    // CPU chart
+    const cpuId='res_cpu_'+mode;
+    grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — CPU Usage (%)</h4><div style="height:220px"><canvas id="${cpuId}"></canvas></div></div>`;
+    // Memory API chart
+    const memApiId='res_memapi_'+mode;
+    grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — Memory: API 서버 (MiB)</h4><div style="height:220px"><canvas id="${memApiId}"></canvas></div></div>`;
+    // Memory DB chart
+    if(dbContainers.length){
+      const memDbId='res_memdb_'+mode;
+      grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — Memory: DB (MiB)</h4><div style="height:220px"><canvas id="${memDbId}"></canvas></div></div>`;
+    }
+    sec.appendChild(grid);
+
+    setTimeout(()=>{
+      function mkDs(conts,field){return conts.map(c=>{
+        const pts=mData.filter(d=>d.container===c);
+        return{label:c,data:pts.map(d=>({x:+((d.time-t0)/1000).toFixed(1),y:d[field]})),
+          borderColor:C[c]||'#64748b',backgroundColor:(C[c]||'#64748b')+'15',borderWidth:2,tension:.2,pointRadius:0,fill:true}})}
+      const opts=yL=>({responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+        plugins:{legend:{labels:{font:{size:10,weight:'600',family:'IBM Plex Sans'},usePointStyle:true,padding:10}}},
+        scales:{x:{type:'linear',title:{display:true,text:'Elapsed (s)',font:{size:10,weight:'600'}},ticks:{callback:v=>v+'s',font:{size:9}}},
+          y:{beginAtZero:true,title:{display:true,text:yL,font:{size:10,weight:'600'}},ticks:{font:{size:9}}}}});
+      dc(cpuId);S.charts[cpuId]=new Chart(document.getElementById(cpuId),{type:'line',data:{datasets:mkDs(containers,'cpu')},options:opts('CPU (%)')});
+      dc(memApiId);S.charts[memApiId]=new Chart(document.getElementById(memApiId),{type:'line',data:{datasets:mkDs(apiContainers,'memory')},options:opts('Memory (MiB)')});
+      if(dbContainers.length){const memDbId='res_memdb_'+mode;dc(memDbId);
+        S.charts[memDbId]=new Chart(document.getElementById(memDbId),{type:'line',data:{datasets:mkDs(dbContainers,'memory')},options:opts('Memory (MiB)')})}
+    },20)});
+  parent.appendChild(sec)}
+
+// --- TC Cards (통합 뷰: 핵심 메트릭을 한 카드에) ---
+function renderTCCards(parent){
+  const data=fm();if(!data.length)return;
+  const tcs=[...new Set(data.map(d=>d.tc))].sort();
+  const sec=document.createElement('div');
+  sec.innerHTML=`<div class="section-title"><span class="dot" style="background:var(--accent)"></span>TC별 성능 분석</div>`;
+
+  tcs.forEach(tc=>{
+    const tcData=data.filter(d=>d.tc===tc);
+    const card=document.createElement('div');card.className='card';card.style.marginBottom='16px';
+    const label=TL[tc]||'';
+    
+    // 해당 TC에서 사용 가능한 메트릭 분류
+    const durData=tcData.filter(d=>d.metric.includes('duration'));
+    const waitData=tcData.filter(d=>d.metric==='http_req_waiting');
+    const sendData=tcData.filter(d=>d.metric==='http_req_sending');
+    const recvData=tcData.filter(d=>d.metric==='http_req_receiving');
+    const blockData=tcData.filter(d=>d.metric==='http_req_blocked');
+    const connData=tcData.filter(d=>d.metric==='http_req_connecting');
+
+    // 차트 레이아웃 결정
+    const charts=[];
+    if(durData.length) charts.push({id:`tc_dur_${tc}`,data:durData,title:'Latency (ms)',desc:ML.http_req_duration,unit:'ms'});
+    if(waitData.length) charts.push({id:`tc_wait_${tc}`,data:waitData,title:'TTFB / Waiting (ms)',desc:ML.http_req_waiting,unit:'ms'});
+    if(sendData.length) charts.push({id:`tc_send_${tc}`,data:sendData,title:'Sending (ms)',desc:ML.http_req_sending,unit:'ms'});
+    if(recvData.length) charts.push({id:`tc_recv_${tc}`,data:recvData,title:'Receiving (ms)',desc:ML.http_req_receiving,unit:'ms'});
+    if(blockData.length) charts.push({id:`tc_block_${tc}`,data:blockData,title:'Blocked (ms)',desc:ML.http_req_blocked,unit:'ms'});
+    if(connData.length) charts.push({id:`tc_conn_${tc}`,data:connData,title:'Connecting (ms)',desc:ML.http_req_connecting,unit:'ms'});
+
+    // 헤더
+    let html=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+      <span style="background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px">${tc.toUpperCase()}</span>
+      <span style="font-size:13px;font-weight:700">${label}</span></div>`;
+    
+    // p99.9 미니 테이블
+    if(durData.length){
+      const ag={};durData.forEach(d=>{if(!ag[d.api])ag[d.api]=[];ag[d.api].push(d.value)});
+      html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">`;
+      Object.entries(ag).sort().forEach(([api,vals])=>{
+        const s=vals.sort((a,b)=>a-b);const n=s.length;
+        const avg=(s.reduce((a,b)=>a+b,0)/n).toFixed(2);
+        const p999=s[Math.min(Math.floor(n*.999),n-1)].toFixed(2);
+        html+=`<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:120px">
+          <div style="font-size:10px;font-weight:700;color:${gc(api)};margin-bottom:4px">${api.toUpperCase()}</div>
+          <div style="font-size:10px;color:var(--sub)">Avg: <span class="mono" style="font-weight:600">${avg} ms</span></div>
+          <div style="font-size:10px;color:var(--sub)">p99.9: <span class="mono" style="font-weight:700">${p999} ms</span></div>
+          <div style="font-size:10px;color:var(--sub)">Samples: <span class="mono">${n}</span></div></div>`});
+      html+=`</div>`}
+
+    // 차트 그리드
+    const cols=charts.length===1?'1fr':charts.length<=2?'1fr 1fr':'1fr 1fr 1fr';
+    html+=`<div style="display:grid;grid-template-columns:${cols};gap:12px">`;
+    charts.forEach(ch=>{
+      html+=`<div style="border:1px solid var(--border);border-radius:8px;padding:10px">
+        <div style="font-size:11px;font-weight:700;margin-bottom:2px">${ch.title}</div>
+        <div style="font-size:9px;color:var(--sub);margin-bottom:8px">${ch.desc.split('—')[1]||''}</div>
+        <div style="height:200px"><canvas id="${ch.id}"></canvas></div></div>`});
+    html+=`</div>`;
+    card.innerHTML=html;sec.appendChild(card);
+
+    // 차트 렌더링
+    setTimeout(()=>{charts.forEach(ch=>{
+      const ctx=document.getElementById(ch.id);if(!ctx)return;
+      const ag={};ch.data.forEach(d=>{if(!ag[d.api])ag[d.api]=[];ag[d.api].push(d)});
+      const datasets=Object.entries(ag).map(([api,rows])=>{
+        rows.sort((a,b)=>a.time-b.time);const s=rows[0].time;
+        return{label:api.toUpperCase(),data:rows.map(d=>({x:+((d.time-s)/1000).toFixed(1),y:d.value})),
+          borderColor:gc(api),borderWidth:2,tension:.2,pointRadius:0,fill:false}});
+      dc(ch.id);S.charts[ch.id]=new Chart(ctx,{type:'line',data:{datasets},
+        options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
+          plugins:{legend:{labels:{font:{size:9,weight:'600'},usePointStyle:true,padding:8}}},
+          scales:{x:{type:'linear',ticks:{callback:v=>v+'s',font:{size:8}},title:{display:true,text:'경과 시간 (초)',font:{size:9}}},
+            y:{beginAtZero:true,ticks:{font:{size:8}},title:{display:true,text:ch.unit,font:{size:9}}}}}})})},30)});
+  parent.appendChild(sec)}
+
+// --- Export ---
+async function exportZip(){const ids=Object.keys(S.charts);if(!ids.length)return alert('차트 없음');
+  const zip=new JSZip();for(const id of ids){const cv=document.getElementById(id);if(!cv)continue;
+    const t=document.createElement('canvas');t.width=cv.width;t.height=cv.height;const c=t.getContext('2d');
+    c.fillStyle='#fff';c.fillRect(0,0,t.width,t.height);c.drawImage(cv,0,0);
+    zip.file(id+'.png',t.toDataURL('image/png').split(',')[1],{base64:true})}
+  const blob=await zip.generateAsync({type:'blob'});const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='benchmark_'+Date.now()+'.zip';a.click()}
+</script>
 </body>
 </html>

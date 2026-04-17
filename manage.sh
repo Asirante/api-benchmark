@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# API 아키텍처 벤치마킹 통합 관리 스크립트 (v10.0 - docker stats 기반 리소스 모니터링)
+# API 아키텍처 벤치마킹 통합 관리 스크립트 (v11.1 - 기본 기능 복구 및 스파이크/패키징 고도화)
 # 권한 부여: chmod +x manage.sh
 
 COMMAND=$1
@@ -14,11 +14,10 @@ BACKUP_DIR="./influxdb_backups"
 CSV_DIR="./csv_results"
 RESOURCE_DIR="./resource_logs"
 
-# 리소스 모니터링 설정 (docker stats 사용)
+# 리소스 모니터링 설정
 RESOURCE_INTERVAL=2
 RESOURCE_CONTAINERS=("benchmark_rest" "benchmark_graphql" "benchmark_grpc" "benchmark_db" "benchmark_envoy")
 
-# 모든 추출 대상 Metric 목록
 METRICS=(
     "http_req_duration" "grpc_req_duration" "http_reqs"
     "http_req_waiting" "http_req_blocked" "http_req_connecting"
@@ -28,9 +27,6 @@ METRICS=(
 )
 
 # ----------------------------------------------------------------------------
-# [공통 유틸리티 함수]
-# ----------------------------------------------------------------------------
-
 print_header() {
     echo "============================================================"
     echo " $1"
@@ -43,7 +39,6 @@ run_influx_query() {
     docker exec benchmark_influxdb influx -database "$INFLUX_DB_NAME" -precision rfc3339 -execute "$query" -format csv > "$output_file"
 }
 
-# 카운트다운 함수
 countdown() {
     local secs=$1
     local msg=$2
@@ -58,22 +53,15 @@ countdown() {
 }
 
 # ----------------------------------------------------------------------------
-# [리소스 모니터링 함수 - Docker Stats 버전]
-# ----------------------------------------------------------------------------
-
 start_resource_collector() {
     local output_csv=$1
-    
     mkdir -p "$RESOURCE_DIR"
-    # 헤더 작성: 시간, 컨테이너명, CPU사용률(%), 메모리사용량
     echo "time,container,cpu_perc,mem_usage" > "$output_csv"
     
-    # 백그라운드에서 docker stats 실행 루프
     (
         trap "exit 0" SIGTERM SIGINT
         while true; do
             local ts=$(date '+%Y-%m-%dT%H:%M:%S')
-            # 지정된 컨테이너들의 스냅샷을 한 번에 획득
             docker stats --no-stream --format "{{.Name}},{{.CPUPerc}},{{.MemUsage}}" "${RESOURCE_CONTAINERS[@]}" 2>/dev/null | while read line; do
                 if [ -n "$line" ]; then
                     echo "${ts},${line}" >> "$output_csv"
@@ -100,9 +88,6 @@ stop_resource_collector() {
 }
 
 # ----------------------------------------------------------------------------
-# [핵심 로직 함수]
-# ----------------------------------------------------------------------------
-
 init_influx_db() {
     echo "[진행] InfluxDB 상태 확인 중..."
     if ! docker ps | grep -q benchmark_influxdb; then
@@ -122,7 +107,9 @@ run_k6() {
     echo " 🚀 [실행] $test_type | $script_file | VUs: $vus"
     echo "------------------------------------------------------------"
 
-    local resource_file="${RESOURCE_DIR}/resource_${test_type}_${vus}_${session_id}.csv"
+    local proto_name=$(echo "$script_file" | sed -E 's/bench_(.*)\.js/\1/' | sed 's/benchmark_tc8.js/spike/')
+    local resource_file="${RESOURCE_DIR}/resource_${test_type}_${proto_name}_${vus}_${session_id}.csv"
+    
     local resource_pid=$(start_resource_collector "$resource_file")
 
     docker run --rm -it \
@@ -184,9 +171,9 @@ do_export_csv() {
 
     local condition=""
     case "$mode" in
-        current) echo "  범위: 현재 Session ($session_id)"; condition="WHERE \"session_id\"='${session_id}'" ;;
-        all|"") echo "  범위: 전체 데이터" ;;
-        *) echo "  범위: VUs=$mode 그룹"; condition="WHERE \"vus_group\"='${mode}'" ;;
+        current) condition="WHERE \"session_id\"='${session_id}'" ;;
+        all|"") ;;
+        *) condition="WHERE \"vus_group\"='${mode}'" ;;
     esac
 
     for metric in "${METRICS[@]}"; do
@@ -194,7 +181,6 @@ do_export_csv() {
         local q="SELECT \"time\", \"api\", \"tc\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         [ "$metric" == "vus" ] && q="SELECT \"time\", \"test_type\", \"vus_group\", \"run_id\", \"value\" FROM \"${metric}\" ${condition} tz('Asia/Seoul')"
         run_influx_query "$q" "${dir}/${metric}.csv"
-        [ ! -s "${dir}/${metric}.csv" ] || [ $(wc -l < "${dir}/${metric}.csv") -le 1 ] && echo "    (데이터 없음)"
     done
 
     if [ -d "$RESOURCE_DIR" ]; then
@@ -205,7 +191,7 @@ do_export_csv() {
         done
         [ $rc -gt 0 ] && echo "  - [리소스] ${rc}개의 리소스 로그 파일 복사 완료"
     fi
-    echo " [완료] 총 $(ls -1 "$dir"/*.csv 2>/dev/null | wc -l)개 파일 추출 성공"
+    echo " [완료] 파일 추출 성공"
 }
 
 do_restore_all() {
@@ -257,16 +243,16 @@ do_export_full() {
 }
 
 do_package() {
-    print_header " [패키징] 결과물 VUs별 정리 및 ZIP 압축"
+    print_header " [정리] 결과물 VUs별 폴더 분류 (기존 폴더 덮어쓰기)"
     [ ! -d "$CSV_DIR" ] && { echo "[에러] csv_results 디렉토리가 없습니다."; return 1; }
 
-    local pkg="${CSV_DIR}/packaged_${GLOBAL_TIMESTAMP}"
-    mkdir -p "$pkg"
     local count=0
 
+    # export_ 로 시작하는 임시 폴더들을 VUs_ 형태의 직관적인 폴더명으로 변환
     for csv_dir in "$CSV_DIR"/export_*/; do
         [ ! -d "$csv_dir" ] && continue
         local vus_file="${csv_dir}/vus.csv" vus_label="unknown" test_type=""
+        
         if [ -f "$vus_file" ] && [ $(wc -l < "$vus_file") -gt 1 ]; then
             local hdr=$(head -1 "$vus_file")
             if echo "$hdr" | grep -q "vus_group"; then
@@ -279,35 +265,25 @@ do_package() {
                 [ -n "$tv" ] && test_type="_${tv}"
             fi
         fi
-        local base="VUs_${vus_label}${test_type}" final="$base" n=1
-        while [ -d "${pkg}/${final}" ]; do final="${base}_${n}"; n=$((n+1)); done
-        echo "  - 정리 중: $(basename $csv_dir) → ${final}"
-        cp -r "$csv_dir" "${pkg}/${final}"
+        
+        # 최종 대상 폴더 (예: csv_results/VUs_50_standard)
+        local final_dir="${CSV_DIR}/VUs_${vus_label}${test_type}"
+        echo "  - 정리 중: $(basename "$csv_dir") → $(basename "$final_dir")"
+        
+        # 기존에 같은 VUs 폴더가 있다면 과감히 삭제 후 덮어쓰기
+        if [ -d "$final_dir" ]; then
+            rm -rf "$final_dir"
+        fi
+        
+        mv "$csv_dir" "$final_dir"
         count=$((count + 1))
     done
 
-    if [ -d "$RESOURCE_DIR" ] && ls "$RESOURCE_DIR"/*.csv 1>/dev/null 2>&1; then
-        mkdir -p "${pkg}/_resource_logs"
-        cp "$RESOURCE_DIR"/*.csv "${pkg}/_resource_logs/"
-        echo "  - 리소스 로그 폴더 병합 완료"
-    fi
-
-    [ $count -eq 0 ] && { echo "패키징할 대상이 없습니다."; rm -rf "$pkg"; return 0; }
-
-    if command -v zip &>/dev/null; then
-        local zip_name="benchmark_results_${GLOBAL_TIMESTAMP}.zip"
-        cd "$pkg" && zip -r "../${zip_name}" . -q && cd - >/dev/null
-        rm -rf "$pkg"
-        echo " [완료] ${count}개 세트 압축 완료 → ${CSV_DIR}/${zip_name}"
-    else
-        echo " [완료] ${count}개 세트 정리 완료 → ${pkg} (zip 명령어가 없어 압축은 생략됨)"
-    fi
+    [ $count -eq 0 ] && { echo "정리할 데이터가 없습니다."; return 0; }
+    echo " [완료] ${count}개 세트 정리 완료 (압축 제외됨)"
 }
 
 # ----------------------------------------------------------------------------
-# [커맨드 라우팅]
-# ----------------------------------------------------------------------------
-
 case "$COMMAND" in
   setup-alias)
     SHELL_RC="$HOME/.bashrc"
@@ -324,7 +300,6 @@ case "$COMMAND" in
 
   test)
     init_influx_db
-    print_header " [격리 테스트] REST → GQL → gRPC (VUs: ${VUS_ARG})"
     run_k6 "bench_rest.js" "standard" "$VUS_ARG"
     countdown 30 "REST 종료 후 쿨다운"
     run_k6 "bench_gql.js" "standard" "$VUS_ARG"
@@ -339,22 +314,18 @@ case "$COMMAND" in
 
   test-spike)
     init_influx_db
-    run_k6 "benchmark_tc8.js" "spike" "max_10k" "$GLOBAL_TIMESTAMP"
+    print_header " [스파이크 테스트] TC8 - 최대 5K 극한 부하"
+    run_k6 "benchmark_tc8.js" "spike" "max_5k" "$GLOBAL_TIMESTAMP"
+    
+    # 다른 명령어와 동일하게 추출 및 폴더 덮어쓰기 정리 진행
     do_export_data "spike_backup" "$GLOBAL_TIMESTAMP"
     do_export_csv "current" "$GLOBAL_TIMESTAMP"
-    ;;
-
-  test-all)
-    init_influx_db
-    print_header " [자동화] 전체 격리 벤치마크 (VUs: $VUS_ARG)"
-    run_benchmark_suite "$VUS_ARG" "$GLOBAL_TIMESTAMP"
-    do_export_data "k6_backup" "$GLOBAL_TIMESTAMP"
-    do_export_csv "current" "$GLOBAL_TIMESTAMP"
+    do_package
     ;;
 
   test-all-cycle)
     shift; VUS_LIST="$@"
-    [ -z "$VUS_LIST" ] && { echo "[에러] 사용법: ./manage.sh test-all-cycle 100 300 500 1000"; exit 1; }
+    [ -z "$VUS_LIST" ] && { echo "[에러] 사용법: ./manage.sh test-all-cycle 100 300 500"; exit 1; }
 
     init_influx_db
     TOTAL=$(echo "$VUS_LIST" | wc -w)
@@ -367,9 +338,7 @@ case "$COMMAND" in
         CUR=$((CUR + 1))
         CYCLE_TS=$(date +%Y%m%d_%H%M%S)
         
-        echo ""
-        echo "========== [${CUR}/${TOTAL}] VUs = ${VUS_TARGET} (Session: $CYCLE_TS) =========="
-
+        echo -e "\n========== [${CUR}/${TOTAL}] VUs = ${VUS_TARGET} =========="
         run_benchmark_suite "$VUS_TARGET" "$CYCLE_TS"
         do_export_data "cycle_vus${VUS_TARGET}" "$CYCLE_TS"
         do_export_csv "current" "$CYCLE_TS"
@@ -378,13 +347,12 @@ case "$COMMAND" in
     done
 
     echo ""
-    print_header " 🏁 사이클 완료! 데이터 정리 및 패키징 중..."
-    do_export_full
+    print_header " 🏁 사이클 완료! 데이터 정리 중..."
     do_package
 
     END_TIME=$(date +%s)
     ELAPSED=$(( (END_TIME - START_TIME) / 60 ))
-    print_header " 🎉 전체 소요: ${ELAPSED}분 | ${TOTAL}세트 x 4 = $((TOTAL*4))회 완료"
+    print_header " 🎉 전체 소요: ${ELAPSED}분 | ${TOTAL}세트 완료"
     ;;
 
   export) do_export_data "k6_manual" "$GLOBAL_TIMESTAMP" ;;
@@ -402,9 +370,8 @@ case "$COMMAND" in
     echo ""
     echo " [테스트]"
     echo "  test [VUs]                   : TC1~7 격리 (REST→GQL→gRPC)"
-    echo "  test-all [VUs]               : TC1~7 + TC9 전체 격리"
-    echo "  test-all-cycle V1 V2 ..      : 다중 VUs 풀코스 (자동 추출+패키징)"
-    echo "  test-spike                   : TC8 스파이크 (max 10k VUs)"
+    echo "  test-all-cycle 50 100 ..     : 다중 VUs 자동화 테스트 (폴더 덮어쓰기)"
+    echo "  test-spike                   : TC8 스파이크 5K 극한 테스트"
     echo "  test-proxy [VUs]             : TC9 Envoy 단독"
     echo ""
     echo " [데이터]"
@@ -412,9 +379,6 @@ case "$COMMAND" in
     echo ""
     echo " [관리]"
     echo "  start / stop / restart / clean / logs"
-    echo ""
-    echo " [테스트]"
-    echo "  ./manage.sh test-all-cycle 50 100 300 500 1000 1500 2000"
     echo "----------------------------------------------------------------------"
     exit 1
     ;;
