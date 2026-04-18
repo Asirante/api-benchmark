@@ -2,328 +2,2592 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>API Benchmark Analyzer v3</title>
-<script src="https://cdn.tailwindcss.com"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.3.2/papaparse.min.js"></script>
+<title>K6 Benchmark Analyzer — API Architecture Comparison</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<!-- 외부 라이브러리 로드 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@sgratzl/chartjs-chart-boxplot@4.4.1/build/index.umd.min.js"></script>
+
+<!-- 추가된 캡처 및 ZIP 압축용 라이브러리 -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+
+<!-- 가독성 높은 Pretendard 및 숫자용 JetBrains Mono 폰트 로드 -->
+<link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css" />
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
 <style>
-*{box-sizing:border-box;margin:0;padding:0}
-:root{--bg:#f0f2f5;--card:#fff;--border:#e2e6ea;--text:#1a1d23;--sub:#6b7280;--accent:#2563eb;--green:#059669;--red:#dc2626;--orange:#d97706}
-body{font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);overflow:hidden;height:100vh;display:flex}
-::-webkit-scrollbar{width:6px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#c4c8cc;border-radius:3px}
-.mono{font-family:'JetBrains Mono',monospace;font-size:12px}
-.card{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:20px}
-.chip{display:inline-flex;align-items:center;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;border:1.5px solid var(--border);transition:all .15s;user-select:none}
-.chip.active{background:var(--accent);color:#fff;border-color:var(--accent)}
-.chip:hover:not(.active){background:#f0f4ff;border-color:var(--accent)}
-.drop-zone{border:2px dashed var(--border);border-radius:12px;padding:28px;text-align:center;transition:all .2s;cursor:pointer}
-.drop-zone:hover,.drop-zone.dragover{border-color:var(--accent);background:#eff6ff}
-.stat-value{font-size:24px;font-weight:700;line-height:1.1}
-.stat-label{font-size:10px;font-weight:600;color:var(--sub);text-transform:uppercase;letter-spacing:.4px;margin-top:3px}
-.accordion-toggle{cursor:pointer;user-select:none;display:flex;align-items:center;justify-content:space-between}
-.accordion-toggle .arrow{transition:transform .2s;font-size:12px}
-.accordion-toggle.open .arrow{transform:rotate(180deg)}
-.desc{font-size:11px;color:var(--sub);font-weight:500;line-height:1.4;margin:4px 0 12px;padding:6px 10px;background:#f8fafc;border-radius:6px;border-left:3px solid var(--accent)}
-.section-title{font-size:15px;font-weight:700;margin-bottom:12px;display:flex;align-items:center;gap:8px}
-.section-title .dot{width:8px;height:8px;border-radius:50%}
+/* =========================================================================
+   CSS 변수 (가독성과 명도 대비를 높인 모던 팔레트)
+   ========================================================================= */
+:root {
+  /* Light Theme */
+  --bg-0: #f1f5f9;
+  --bg-1: #ffffff;
+  --bg-2: #e2e8f0;
+  --bg-3: #cbd5e1;
+  --line: #94a3b8;
+  --line-soft: #cbd5e1;
+  
+  --text-0: #0f172a;
+  --text-1: #334155;
+  --text-2: #475569;
+  
+  --accent: #2563eb;
+  --accent-2: #059669;
+  --accent-3: #dc2626;
+
+  --color-rest: #10b981;
+  --color-grpc: #f59e0b;
+  --color-graphql: #ec4899;
+  --color-grpc-direct: #8b5cf6;
+  --color-grpc-envoy: #f43f5e;
+}
+
+/* Dark Theme */
+body.theme-dark {
+  --bg-0: #0f172a;
+  --bg-1: #1e293b;
+  --bg-2: #334155;
+  --bg-3: #475569;
+  --line: #64748b;
+  --line-soft: #475569;
+  
+  --text-0: #f8fafc;
+  --text-1: #e2e8f0;
+  --text-2: #cbd5e1;
+  
+  --accent: #3b82f6;
+  --accent-2: #10b981;
+  --accent-3: #ef4444;
+
+  --color-rest: #34d399;
+  --color-grpc: #fbbf24;
+  --color-graphql: #f472b6;
+  --color-grpc-direct: #a78bfa;
+  --color-grpc-envoy: #fb7185;
+}
+
+* { 
+  box-sizing: border-box; 
+  margin: 0; 
+  padding: 0; 
+}
+
+html, body {
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo', 'Noto Sans KR', 'Malgun Gothic', sans-serif;
+  font-size: 15px;
+  line-height: 1.6;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--line-soft) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line-soft) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: 0.15;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.wrap {
+  position: relative;
+  z-index: 1;
+  max-width: 1600px;
+  margin: 0 auto;
+  padding: 32px 28px 80px;
+}
+
+/* =========================================================================
+   헤더
+   ========================================================================= */
+header.top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  margin-bottom: 32px;
+  padding-bottom: 20px;
+  border-bottom: 2px solid var(--line-soft);
+}
+
+header.top h1 {
+  font-weight: 800;
+  font-size: 36px;
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--text-0);
+}
+
+header.top h1 .k6 { 
+  color: var(--accent); 
+}
+
+header.top .sub {
+  color: var(--text-1);
+  font-size: 14px;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+header.top .meta {
+  text-align: right;
+  font-size: 13px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+header.top .meta .val {
+  color: var(--text-0);
+  font-size: 24px;
+  font-weight: 700;
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.theme-toggle {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  color: var(--text-0);
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-left: 20px;
+  transition: all 0.2s;
+}
+
+.theme-toggle:hover { 
+  background: var(--bg-2); 
+}
+
+/* =========================================================================
+   섹션 & 카드
+   ========================================================================= */
+section.panel {
+  background: var(--bg-1);
+  border: 1px solid var(--line-soft);
+  border-radius: 8px;
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+section.panel > h2, 
+.accordion-head h2 {
+  font-weight: 700;
+  font-size: 20px;
+  color: var(--text-0);
+  margin-bottom: 6px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+section.panel > h2 .num, 
+.accordion-head h2 .num {
+  color: var(--accent);
+  background: var(--bg-2);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.desc {
+  color: var(--text-2);
+  font-size: 14px;
+  margin-bottom: 20px;
+  line-height: 1.5;
+}
+
+.upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.upload-card {
+  background: var(--bg-0);
+  border: 2px dashed var(--line);
+  border-radius: 8px;
+  padding: 20px;
+  position: relative;
+  min-height: 150px;
+  transition: border-color 0.2s;
+}
+
+.upload-card.has-data {
+  border-style: solid;
+  border-color: var(--accent);
+  background: var(--bg-1);
+}
+
+.upload-card .card-label { 
+  font-size: 12px; 
+  font-weight: 600; 
+  color: var(--text-2); 
+  margin-bottom: 8px; 
+}
+
+.upload-card .card-vus { 
+  font-size: 32px; 
+  font-weight: 700; 
+  color: var(--text-0); 
+  line-height: 1; 
+  margin-bottom: 12px; 
+}
+
+.upload-card .card-vus .unit { 
+  font-size: 14px; 
+  color: var(--text-2); 
+  font-weight: 500; 
+  margin-left: 6px; 
+}
+
+.upload-card .card-stats { 
+  font-size: 13px; 
+  color: var(--text-1); 
+  margin-top: 12px; 
+  line-height: 1.5; 
+}
+
+.upload-card label.file-btn {
+  display: inline-block; 
+  background: var(--bg-1); 
+  border: 1px solid var(--line); 
+  border-radius: 4px;
+  color: var(--text-0); 
+  padding: 6px 12px; 
+  font-size: 13px; 
+  font-weight: 600; 
+  cursor: pointer; 
+  transition: all 0.2s;
+}
+
+.upload-card label.file-btn:hover { 
+  background: var(--accent); 
+  color: white; 
+  border-color: var(--accent); 
+}
+
+.upload-card input[type="file"] { 
+  display: none; 
+}
+
+.upload-card .remove-btn {
+  position: absolute; 
+  top: 12px; 
+  right: 12px; 
+  background: var(--bg-2); 
+  border: none; 
+  border-radius: 4px;
+  color: var(--text-1); 
+  cursor: pointer; 
+  font-size: 16px; 
+  width: 28px; 
+  height: 28px; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center;
+}
+
+.upload-card .remove-btn:hover { 
+  background: var(--accent-3); 
+  color: white; 
+}
+
+.upload-card.add-new { 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  cursor: pointer; 
+  font-size: 40px; 
+  color: var(--line); 
+}
+
+.upload-card.add-new:hover { 
+  border-color: var(--accent); 
+  color: var(--accent); 
+}
+
+/* =========================================================================
+   필터
+   ========================================================================= */
+.filter-group { 
+  display: flex; 
+  align-items: flex-start; 
+  padding: 12px 0; 
+  border-bottom: 1px solid var(--line-soft); 
+}
+
+.filter-group:last-child { 
+  border-bottom: none; 
+}
+
+.filter-group .label { 
+  width: 120px; 
+  font-size: 13px; 
+  font-weight: 700; 
+  color: var(--text-1); 
+  padding-top: 6px; 
+}
+
+.chip-row { 
+  display: flex; 
+  flex-wrap: wrap; 
+  gap: 8px; 
+  flex: 1; 
+}
+
+.chip {
+  background: var(--bg-0); 
+  border: 1px solid var(--line); 
+  border-radius: 6px; 
+  color: var(--text-1);
+  padding: 6px 14px; 
+  font-size: 13px; 
+  font-weight: 500; 
+  cursor: pointer; 
+  user-select: none; 
+  transition: all 0.2s;
+}
+
+.chip:hover { 
+  background: var(--bg-2); 
+  color: var(--text-0); 
+}
+
+.chip.active { 
+  background: var(--accent); 
+  border-color: var(--accent); 
+  color: white; 
+  font-weight: 600; 
+}
+
+.chip.disabled { 
+  opacity: 0.4; 
+  cursor: not-allowed; 
+  text-decoration: line-through; 
+}
+
+.chip.all { 
+  background: transparent; 
+  border-style: dashed; 
+}
+
+.chip.all.active { 
+  background: var(--text-1); 
+  border-color: var(--text-1); 
+  border-style: solid; 
+  color: white; 
+}
+
+/* =========================================================================
+   아코디언, 차트 컨테이너 & 캡처 기능
+   ========================================================================= */
+.accordion-head {
+  width: 100%; 
+  background: transparent; 
+  border: none; 
+  border-bottom: 1px solid transparent;
+  padding: 0 0 16px 0; 
+  margin-bottom: 16px; 
+  cursor: pointer; 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: center;
+}
+
+.accordion-head:hover { 
+  border-bottom-color: var(--line-soft); 
+}
+
+.accordion-chevron { 
+  font-size: 20px; 
+  color: var(--line); 
+  transition: transform 0.2s ease; 
+}
+
+.accordion.collapsed .accordion-chevron { 
+  transform: rotate(-90deg); 
+}
+
+.accordion.collapsed .accordion-body { 
+  display: none; 
+}
+
+/* 캡처를 위한 타겟 컨테이너 스타일 */
+.capture-target {
+  background: var(--bg-1);
+  padding: 20px;
+  border-radius: 8px;
+  border: 1px solid var(--line-soft);
+  margin-bottom: 24px;
+  display: flex;
+  flex-direction: column;
+}
+
+.chart-header { 
+  display: flex; 
+  justify-content: space-between; 
+  align-items: flex-start; 
+  margin-bottom: 16px; 
+}
+
+.chart-header .chart-title { 
+  font-size: 16px; 
+  font-weight: 700; 
+  color: var(--text-0); 
+  margin-bottom: 4px; 
+}
+
+.chart-header .chart-sub { 
+  font-size: 12px; 
+  color: var(--text-2); 
+}
+
+/* 컨트롤 요소 (드롭다운 & 캡처 버튼) */
+.chart-controls { 
+  display: flex; 
+  gap: 8px; 
+  align-items: center; 
+}
+
+.chart-type-select {
+  font-family: inherit; 
+  font-size: 12px; 
+  font-weight: 600; 
+  padding: 6px 12px; 
+  border-radius: 6px;
+  border: 1px solid var(--line); 
+  background: var(--bg-0); 
+  color: var(--text-1); 
+  cursor: pointer; 
+  outline: none; 
+  transition: all 0.2s;
+}
+
+.chart-type-select:hover { 
+  background: var(--bg-2); 
+  color: var(--text-0); 
+}
+
+.chart-type-select:focus { 
+  border-color: var(--accent); 
+}
+
+.btn-cap {
+  background: transparent; 
+  border: 1px solid var(--line); 
+  border-radius: 6px; 
+  color: var(--text-1);
+  padding: 5px 10px; 
+  font-size: 12px; 
+  font-weight: 600; 
+  cursor: pointer; 
+  display: flex; 
+  align-items: center; 
+  gap: 4px; 
+  transition: all 0.2s;
+}
+
+.btn-cap:hover { 
+  background: var(--accent); 
+  color: white; 
+  border-color: var(--accent); 
+}
+
+.chart-wrap { 
+  position: relative; 
+  min-height: 380px; 
+  flex: 1; 
+}
+
+.chart-wrap canvas { 
+  max-width: 100%; 
+}
+
+.chart-grid-2 { 
+  display: grid; 
+  grid-template-columns: 1fr 1fr; 
+  gap: 24px; 
+}
+
+@media (max-width: 1100px) { 
+  .chart-grid-2 { 
+    grid-template-columns: 1fr; 
+  } 
+}
+
+/* =========================================================================
+   표 영역
+   ========================================================================= */
+.table-wrap { 
+  background: var(--bg-0); 
+  border: 1px solid var(--line-soft); 
+  border-radius: 8px; 
+  overflow-x: auto; 
+}
+
+table.stats { 
+  width: 100%; 
+  border-collapse: collapse; 
+}
+
+table.stats th, 
+table.stats td { 
+  padding: 12px 16px; 
+  text-align: right; 
+  border-bottom: 1px solid var(--line-soft); 
+  white-space: nowrap; 
+}
+
+table.stats th:first-child, 
+table.stats td:first-child, 
+table.stats th:nth-child(2), 
+table.stats td:nth-child(2), 
+table.stats th:nth-child(3), 
+table.stats td:nth-child(3) { 
+  text-align: left; 
+}
+
+table.stats thead th { 
+  background: var(--bg-1); 
+  color: var(--text-1); 
+  font-weight: 700; 
+  font-size: 13px; 
+  cursor: pointer; 
+  position: sticky; 
+  top: 0; 
+}
+
+table.stats thead th:hover { 
+  color: var(--accent); 
+}
+
+table.stats thead th.sort-asc::after  { 
+  content: ' ▲'; 
+  color: var(--accent); 
+}
+
+table.stats thead th.sort-desc::after { 
+  content: ' ▼'; 
+  color: var(--accent); 
+}
+
+table.stats td { 
+  font-family: 'JetBrains Mono', monospace; 
+  font-size: 13px; 
+}
+
+table.stats td:first-child, 
+table.stats td:nth-child(2), 
+table.stats td:nth-child(3) { 
+  font-family: inherit; 
+  font-size: 14px; 
+}
+
+table.stats tbody tr:hover { 
+  background: var(--bg-2); 
+}
+
+table.stats td.api-cell { 
+  font-weight: 700; 
+}
+
+table.stats td .arch-dot { 
+  display: inline-block; 
+  width: 10px; 
+  height: 10px; 
+  border-radius: 50%; 
+  margin-right: 8px; 
+}
+
+.num-hi { 
+  color: var(--text-0); 
+  font-weight: 600; 
+}
+
+.num-lo { 
+  color: var(--text-2); 
+}
+
+/* =========================================================================
+   빈 상태 & 오버레이
+   ========================================================================= */
+.empty-state { 
+  padding: 80px 20px; 
+  text-align: center; 
+  color: var(--text-2); 
+  font-size: 16px; 
+}
+
+.empty-state .big { 
+  font-size: 24px; 
+  font-weight: 700; 
+  color: var(--text-0); 
+  margin-bottom: 12px; 
+}
+
+.spinner {
+  display: inline-block; 
+  width: 12px; 
+  height: 12px; 
+  border: 2px solid var(--line); 
+  border-top-color: var(--accent);
+  border-radius: 50%; 
+  animation: spin 0.8s linear infinite; 
+  margin-right: 8px;
+}
+
+@keyframes spin { 
+  to { transform: rotate(360deg); } 
+}
+
+/* 전체 캡처 진행 오버레이 */
+#capture-overlay {
+  display: none; 
+  position: fixed; 
+  inset: 0; 
+  background: rgba(15, 23, 42, 0.85); 
+  z-index: 9999;
+  flex-direction: column; 
+  align-items: center; 
+  justify-content: center; 
+  color: white; 
+  font-size: 18px; 
+  font-weight: bold; 
+  backdrop-filter: blur(4px);
+}
 </style>
 </head>
 <body>
-<!-- SIDEBAR -->
-<aside style="width:320px;border-right:1px solid var(--border);background:#fff;display:flex;flex-direction:column;height:100vh;flex-shrink:0">
-  <div style="padding:16px 20px;border-bottom:1px solid var(--border)">
-    <h1 style="font-size:18px;font-weight:700">Benchmark <span style="color:var(--accent)">Analyzer</span></h1>
-    <p style="font-size:10px;color:var(--sub);margin-top:2px">REST · GraphQL · gRPC · Envoy</p>
-  </div>
-  <div style="padding:14px;border-bottom:1px solid var(--border)">
-    <div class="drop-zone" id="dropZone" ondrop="handleDrop(event)" ondragover="event.preventDefault();this.classList.add('dragover')" ondragleave="this.classList.remove('dragover')">
-      <input type="file" id="fileInput" multiple accept=".csv" style="display:none" onchange="handleFiles(this.files)">
-      <div style="font-size:12px;font-weight:600;color:var(--sub)" onclick="document.getElementById('fileInput').click()">CSV 드래그 / 클릭</div>
-      <div id="fileCount" style="font-size:11px;color:var(--accent);margin-top:4px;font-weight:600"></div>
-    </div>
-  </div>
-  <div id="filterPanel" style="padding:14px;flex:1;overflow-y:auto;display:none">
-    <div style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:11px;font-weight:700">VUs (부하 단계)</span>
-        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('vus')">ALL</span>
-      </div>
-      <div id="fVus" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-    </div>
-    <div style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:11px;font-weight:700">TC (테스트 케이스)</span>
-        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('tc')">ALL</span>
-      </div>
-      <div id="fTc" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-    </div>
-    <div style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">
-        <span style="font-size:11px;font-weight:700">Architecture (API)</span>
-        <span style="font-size:10px;font-weight:600;color:var(--accent);cursor:pointer" onclick="toggleAll('api')">ALL</span>
-      </div>
-      <div id="fApi" style="display:flex;flex-wrap:wrap;gap:4px"></div>
-    </div>
-  </div>
-  <div style="padding:10px 14px;border-top:1px solid var(--border)">
-    <button onclick="exportZip()" style="width:100%;padding:9px;background:var(--text);color:#fff;border:none;border-radius:8px;font-size:11px;font-weight:700;cursor:pointer">Export Charts (ZIP)</button>
-  </div>
-</aside>
+<div class="wrap">
 
-<!-- MAIN -->
-<main style="flex:1;display:flex;flex-direction:column;overflow:hidden">
-  <div id="summaryBar" style="padding:12px 24px;border-bottom:1px solid var(--border);background:#fff;display:none">
-    <div style="display:flex;gap:24px;flex-wrap:wrap" id="sumCards"></div>
+<!-- 헤더 -->
+<header class="top">
+  <div>
+    <h1><span class="k6">k6</span> benchmark analyzer</h1>
+    <div class="sub">API Architecture Comparison · REST / gRPC / Envoy</div>
   </div>
-  <div style="flex:1;overflow-y:auto;padding:24px" id="mainWrap">
-    <div id="emptyMsg" style="display:flex;align-items:center;justify-content:center;height:100%;flex-direction:column;color:var(--sub)">
-      <div style="font-size:44px;opacity:.3;margin-bottom:12px">&#128202;</div>
-      <div style="font-size:16px;font-weight:700">No Data</div>
-      <div style="font-size:12px;margin-top:4px">좌측에서 CSV 파일 업로드</div>
+  <div style="display:flex; align-items:center;">
+    <div class="meta">
+      <div>Datasets</div>
+      <span class="val" id="meta-datasets">0</span>
     </div>
-    <div id="content" style="display:none"></div>
+    <div class="meta" style="margin-left: 32px;">
+      <div>Total rows</div>
+      <span class="val" id="meta-rows">0</span>
+    </div>
+    <button class="theme-toggle" id="theme-toggle">다크 모드 전환</button>
   </div>
-</main>
+</header>
+
+<!-- 1. 업로드 섹션 -->
+<section class="panel">
+  <h2><span class="num">01</span> Dataset Upload</h2>
+  <div class="desc">테스트 결과 폴더를 업로드하세요. VUs 그룹 기준으로 자동 분류됩니다.</div>
+  <div class="upload-grid" id="upload-grid"></div>
+</section>
+
+<!-- 2. 필터 섹션 -->
+<section class="panel" id="filter-section" style="display:none;">
+  <h2 style="justify-content: space-between; width: 100%;">
+    <span style="display: flex; align-items: center; gap: 10px;">
+      <span class="num">02</span> Data Filters
+    </span>
+    <!-- 전체 캡처(ZIP) 버튼 위치 -->
+    <button id="btn-capture-all" class="theme-toggle" style="margin:0; background:var(--accent); color:white; border-color:var(--accent);">📸 전체 자동 캡처 (ZIP)</button>
+  </h2>
+  <div class="desc">분석할 VUs, 테스트 케이스(TC), API 아키텍처를 선택하세요.</div>
+  <div class="filter-group">
+    <div class="label">VUs Group</div>
+    <div class="chip-row" id="filter-vus"></div>
+  </div>
+  <div class="filter-group">
+    <div class="label">Test Case (TC)</div>
+    <div class="chip-row" id="filter-tc"></div>
+  </div>
+  <div class="filter-group">
+    <div class="label">API Architecture</div>
+    <div class="chip-row" id="filter-api"></div>
+  </div>
+</section>
+
+<!-- 3. 요약 통계 표 -->
+<section class="panel accordion" id="stats-section" style="display:none;">
+  <button class="accordion-head" id="stats-toggle" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">03</span> Summary Statistics</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">조합별 성능 요약. 헤더를 클릭해 정렬할 수 있습니다. (시간: ms, TPS: req/s, CPU/Mem: 평균 컨테이너 자원)</div>
+    <div class="table-wrap">
+      <table class="stats" id="stats-table">
+        <thead><tr id="stats-head"></tr></thead>
+        <tbody id="stats-body"></tbody>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- 4. 응답 시간 차트 -->
+<section class="panel accordion" id="charts-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">04</span> UX — Request Duration</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">응답 시간(ms) 분포 및 변화 추이 (gRPC/REST 통합 duration 기준)</div>
+
+    <div class="chart-grid-2">
+      <!-- Chart: dist -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Duration Distribution</div>
+            <div class="chart-sub">박스플롯 기반의 전체 응답 분포 비교</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="dist">
+              <option value="box">BOXPLOT (분포)</option>
+              <option value="bar">BAR (평균)</option>
+              <option value="line">LINE (추이)</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-dist"></canvas></div>
+      </div>
+      <!-- Chart: pct -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Latency Percentiles</div>
+            <div class="chart-sub">p50, p95, p99 꼬리 지연시간 비교</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="pct">
+              <option value="line">LINE (기본)</option>
+              <option value="bar">BAR</option>
+              <option value="points">POINTS</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-pct"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Chart: tps -->
+    <div class="capture-target" style="margin-top: 24px;">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">Throughput Over Time</div>
+          <div class="chart-sub">초당 요청 처리량(TPS)의 시간 흐름별 안정성</div>
+        </div>
+        <div class="chart-controls" data-html2canvas-ignore="true">
+          <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+          <select class="chart-type-select" data-chart="tps">
+            <option value="line">LINE (기본)</option>
+            <option value="area">AREA (채우기)</option>
+            <option value="bar">BAR</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-tps"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5. 리소스 효율 차트 -->
+<section class="panel accordion" id="resource-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">05</span> Resource Efficiency</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">서버 컨테이너의 평균 자원(CPU, Memory) 사용량 및 효율성</div>
+
+    <div class="chart-grid-2">
+      <!-- Chart: cpu -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">CPU Usage Over Time</div>
+            <div class="chart-sub">컨테이너 통합 CPU 사용률 (%)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="cpu">
+              <option value="line">LINE</option>
+              <option value="area">AREA</option>
+              <option value="bar">BAR</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-cpu"></canvas></div>
+      </div>
+      <!-- Chart: mem -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Memory Usage Over Time</div>
+            <div class="chart-sub">컨테이너 통합 메모리 사용량 (MB)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="mem">
+              <option value="line">LINE</option>
+              <option value="area">AREA</option>
+              <option value="bar">BAR</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-mem"></canvas></div>
+      </div>
+    </div>
+
+    <!-- Chart: eff -->
+    <div class="capture-target" style="margin-top: 24px;">
+      <div class="chart-header">
+        <div>
+          <div class="chart-title">CPU Cost per Request</div>
+          <div class="chart-sub">평균 CPU % ÷ 평균 TPS (낮을수록 고효율)</div>
+        </div>
+        <div class="chart-controls" data-html2canvas-ignore="true">
+          <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+          <select class="chart-type-select" data-chart="eff">
+            <option value="bar">BAR</option>
+            <option value="scatter">SCATTER (분산)</option>
+            <option value="line">LINE</option>
+          </select>
+        </div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-eff"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. 신뢰성 차트 -->
+<section class="panel accordion" id="reliability-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">06</span> Reliability</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">요청 실패율 및 응답 검증(Checks) 통과율 (%)</div>
+    <div class="chart-grid-2">
+      <!-- Chart: err -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Error Rate</div>
+            <div class="chart-sub">http_req_failed 평균 기반 실패율 (%)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="err">
+              <option value="bar">BAR</option>
+              <option value="line">LINE</option>
+              <option value="points">POINTS</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-err"></canvas></div>
+      </div>
+      <!-- Chart: check -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Check Pass Rate</div>
+            <div class="chart-sub">응답 내용 검증 성공률 (%)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+             <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-check"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 7. 특정 TC 전용 뷰 (고정형 차트들) -->
+<section class="panel accordion" id="tc3-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">07·A</span> TC3 — Payload Progression</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">페이로드 크기 및 처리 단계 증가(part1 → part2)에 따른 지연 시간 변화</div>
+    <div class="chart-grid-2">
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Duration (part1 vs part2)</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc3-prog"></canvas></div>
+      </div>
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Part1 → Part2 Overhead Ratio</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc3-ratio"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel accordion" id="tc7-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">07·B</span> TC7 — Error Scenario</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">의도된 에러 응답의 지연 시간 및 실제 에러 발생률</div>
+    <div class="chart-grid-2">
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Error-path Duration</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc7-dur"></canvas></div>
+      </div>
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Confirmed Error Rate</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc7-err"></canvas></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="panel accordion" id="tc9-section" style="display:none;">
+  <button class="accordion-head" aria-expanded="true">
+    <h2 style="margin:0;"><span class="num">07·C</span> TC9 — Envoy Proxy Overhead</h2>
+    <span class="accordion-chevron">▾</span>
+  </button>
+  <div class="accordion-body">
+    <div class="desc">gRPC 직접 호출 대비 Envoy 프록시 경유 시 추가되는 네트워크 지연 및 자원 비용</div>
+    <div class="chart-grid-2">
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Added Latency (Envoy - Direct)</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc9-delta"></canvas></div>
+      </div>
+      <div class="capture-target">
+        <div class="chart-header">
+          <div><div class="chart-title">Envoy Container CPU</div></div>
+          <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-tc9-cpu"></canvas></div>
+      </div>
+    </div>
+    <div class="capture-target" style="margin-top:24px;">
+      <div class="chart-header">
+        <div><div class="chart-title">Overhead Ratio (Envoy / Direct)</div></div>
+        <div class="chart-controls" data-html2canvas-ignore="true"><button class="btn-cap">📸 캡처</button></div>
+      </div>
+      <div class="chart-wrap"><canvas id="chart-tc9-ratio"></canvas></div>
+    </div>
+  </div>
+</section>
+
+<!-- 초기 상태 메시지 -->
+<div id="initial-empty" class="panel" style="text-align:center;">
+  <div class="empty-state">
+    <div class="big">데이터가 없습니다.</div>
+    상단의 점선 영역을 클릭하여 k6 테스트 결과가 담긴 폴더를 업로드해주세요.
+  </div>
+</div>
+
+</div><!-- wrap -->
+
+<!-- 전체 캡처용 모달 오버레이 -->
+<div id="capture-overlay">
+  <span class="spinner" style="width:50px; height:50px; border-width:5px; margin-bottom:20px;"></span>
+  <div id="capture-msg">자동 전체 캡처를 진행 중입니다...<br><span style="font-size:14px; font-weight:normal;">창을 닫거나 다른 탭으로 이동하지 마세요.</span></div>
+</div>
 
 <script>
-// ============ STATE ============
-const S={m:[],r:[],g:[],meta:{vus:new Set(),tc:new Set(),api:new Set(),mt:new Set()},f:{vus:[],tc:[],api:[]},charts:{}};
-const C={rest:'#3b82f6',graphql:'#ec4899',grpc:'#22c55e',grpc_direct:'#22c55e',grpc_envoy:'#a855f7',grpc_part1:'#86efac',grpc_part2:'#4ade80',rest_part1:'#93c5fd',rest_part2:'#60a5fa',rest_error:'#3b82f6',graphql_error:'#ec4899',grpc_error:'#22c55e',REST:'#3b82f6',GRAPHQL:'#ec4899',GRPC:'#22c55e',DB:'#f59e0b',ENVOY:'#a855f7'};
-const TL={tc1:'단건 조회',tc2:'페이징',tc3:'N+1 언더페칭',tc4:'부분 필드 추출',tc5:'다중 조인',tc6:'트랜잭션 쓰기',tc7:'에러 처리',tc8_spike:'스파이크 부하',tc9_simple:'프록시 단건',tc9_heavy:'프록시 대용량',tc9_error:'프록시 에러'};
-const ML={http_req_duration:'Latency — 요청~응답 전체 소요시간',grpc_req_duration:'gRPC Latency — gRPC 요청 전체 소요시간',http_reqs:'Throughput — 초당 완료된 HTTP 요청 수',http_req_waiting:'TTFB (Waiting) — 서버가 첫 바이트를 보낼 때까지의 대기 시간. 서버 비즈니스 로직+DB 처리 시간 반영',http_req_blocked:'Blocked — 요청이 TCP 커넥션 풀 대기에 소비한 시간. 높으면 커넥션 부족',http_req_connecting:'Connecting — TCP 핸드셰이크 시간. gRPC는 HTTP/2 다중화로 0에 수렴',http_req_sending:'Sending — 요청 직렬화+전송 시간. Protobuf(gRPC)가 JSON(REST)보다 효율적',http_req_receiving:'Receiving — 응답 수신+역직렬화 시간. 대용량 페이로드(TC2,TC5)에서 JSON 비용 확인',http_req_failed:'Error Rate — 실패한 요청 비율. 0=성공, 1=실패. k6는 HTTP 상태 코드 기반 판정',checks:'Checks — k6 check() 통과 여부. 1=통과, 0=실패. 비즈니스 로직 정합성 검증'};
-const MU={http_req_duration:'ms',grpc_req_duration:'ms',http_reqs:'count',http_req_waiting:'ms',http_req_blocked:'ms',http_req_connecting:'ms',http_req_sending:'ms',http_req_receiving:'ms',http_req_failed:'0/1',checks:'0/1'};
-function gc(a){const k=a.toLowerCase();return C[k]||C[k.replace(/ /g,'_')]||'#64748b'}
+const state = {
+  datasets: [],
+  filters: { 
+    vus: new Set(), 
+    tc: new Set(), 
+    api: new Set() 
+  },
+  chartTypes: { 
+    dist: 'box', 
+    pct: 'line', 
+    tps: 'line', 
+    cpu: 'line', 
+    mem: 'line', 
+    eff: 'bar', 
+    err: 'bar' 
+  },
+  sortBy: { 
+    col: 'duration_mean', 
+    dir: 'asc' 
+  },
+  charts: {},
+};
 
-// ============ PARSE ============
-function handleDrop(e){e.preventDefault();document.getElementById('dropZone').classList.remove('dragover');handleFiles(e.dataTransfer.files)}
-async function handleFiles(files){
-  if(!files.length)return;document.getElementById('fileCount').textContent=files.length+'개 처리 중...';
-  let done=0;
-  for(const file of files){const text=await file.text();const fn=file.name.toLowerCase();const hdr=text.split('\n')[0]||'';
-    const isRes=fn.includes('resource_')||hdr.includes('cpu_perc')||hdr.includes('cpu_ns');
-    let vu='unknown';const m=fn.match(/_(\d+)_\d{8}/);if(m)vu=m[1];
-    Papa.parse(text,{header:true,skipEmptyLines:true,complete:res=>{
-      if(isRes)parseRes(res.data,fn,vu);else parseMet(res.data,fn,vu);
-      if(++done===files.length)finalize()}})}}
-function parseMem(s){if(!s)return 0;const p=s.split('/')[0].trim();const m=p.match(/([\d.]+)\s*(\w+)/);if(!m)return parseFloat(s)||0;const v=parseFloat(m[1]),u=m[2].toUpperCase();if(u.includes('G'))return v*1024;if(u.includes('K'))return v/1024;return v}
-function parseRes(data,fn,vu){let mode='standard';const mm=fn.match(/resource_(.+?)_\d+_\d{8}/);if(mm)mode=mm[1];
-  data.forEach(row=>{if(!row.time||!row.container)return;const c=row.container.replace('benchmark_','').toUpperCase();
-    const cpu=parseFloat((row.cpu_perc||row.cpu_ns||'0').toString().replace('%',''));
-    const mem=parseMem(row.mem_usage||row.memory_mb);
-    S.r.push({time:new Date(row.time).getTime(),container:c,cpu,memory:mem,mode,vus:vu});S.meta.vus.add(vu)})}
-function parseMet(data,fn,vu){const mn=fn.replace('.csv','').replace('_summary','');
-  data.forEach(row=>{const val=row.value;if(val===undefined||val===null||val==='')return;if(!row.time)return;
-    const tc=(row.tc||'').toLowerCase().trim();const api=(row.api||'').toLowerCase().trim();
-    const vus=row.vus_group||vu;const mode=row.test_type||'standard';const metric=row.name||mn;const v=parseFloat(val);
-    if(metric==='vus'||metric==='checks'){S.g.push({metric,time:new Date(row.time).getTime(),vus:String(vus),value:v});S.meta.vus.add(String(vus));return}
-    if(!api||api==='unknown')return;
-    S.m.push({metric,time:new Date(row.time).getTime(),tc,api,vus:String(vus),mode,value:v});
-    if(tc)S.meta.tc.add(tc);S.meta.api.add(api);S.meta.vus.add(String(vus));S.meta.mt.add(metric)})}
-function finalize(){
-  document.getElementById('fileCount').textContent=(S.m.length+S.r.length)+' pts';
-  document.getElementById('emptyMsg').style.display='none';document.getElementById('content').style.display='';
-  document.getElementById('filterPanel').style.display='';document.getElementById('summaryBar').style.display='';
-  S.f.vus=[...S.meta.vus].sort((a,b)=>parseInt(a)-parseInt(b));
-  S.f.tc=[...S.meta.tc].sort();S.f.api=[...S.meta.api].sort();
-  buildFilters();renderAll()}
-
-// ============ FILTERS (독립형 — TC/API 종속 없음) ============
-function buildFilters(){
-  bChips('fVus','vus',[...S.meta.vus].sort((a,b)=>parseInt(a)-parseInt(b)),v=>v+' VUs');
-  bChips('fTc','tc',[...S.meta.tc].sort(),v=>{const l=TL[v];return v.toUpperCase()+(l?' · '+l:'')});
-  bChips('fApi','api',[...S.meta.api].sort(),v=>v.toUpperCase())}
-function bChips(id,key,all,lFn){const el=document.getElementById(id);el.innerHTML='';
-  all.forEach(v=>{const d=document.createElement('div');d.className='chip'+(S.f[key].includes(v)?' active':'');d.textContent=lFn(v);
-    d.onclick=()=>{const i=S.f[key].indexOf(v);if(i>=0)S.f[key].splice(i,1);else S.f[key].push(v);buildFilters();renderAll()};el.appendChild(d)})}
-function toggleAll(k){const all=k==='vus'?[...S.meta.vus]:k==='tc'?[...S.meta.tc]:[...S.meta.api];
-  S.f[k]=S.f[k].length===all.length?[]:[...all];buildFilters();renderAll()}
-
-// ============ RENDER ============
-function renderAll(){renderSumBar();const c=document.getElementById('content');c.innerHTML='';
-  renderSummaryTable(c);renderResourceSection(c);renderTCCards(c)}
-function dc(id){if(S.charts[id]){S.charts[id].destroy();delete S.charts[id]}}
-function fm(){return S.m.filter(d=>S.f.vus.includes(d.vus)&&S.f.tc.includes(d.tc)&&S.f.api.includes(d.api))}
-function fr(){return S.r.filter(d=>S.f.vus.includes(d.vus))}
-
-// --- Summary Bar ---
-function renderSumBar(){
-  const dur=fm().filter(d=>d.metric.includes('duration'));const n=dur.length;
-  const avg=n?(dur.reduce((s,d)=>s+d.value,0)/n).toFixed(2):'-';
-  const sv=dur.map(d=>d.value).sort((a,b)=>a-b);
-  const p99=n?sv[Math.floor(n*.99)].toFixed(2):'-';const p999=n?sv[Math.min(Math.floor(n*.999),n-1)].toFixed(2):'-';
-  document.getElementById('sumCards').innerHTML=`
-    <div><div class="stat-value" style="color:var(--accent)">${avg}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">Avg Latency</div></div>
-    <div><div class="stat-value" style="color:var(--orange)">${p99}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">p99</div></div>
-    <div><div class="stat-value" style="color:var(--red)">${p999}<span style="font-size:11px;color:var(--sub)"> ms</span></div><div class="stat-label">p99.9</div></div>
-    <div><div class="stat-value">${n.toLocaleString()}</div><div class="stat-label">Samples</div></div>`}
-
-// --- Summary Table (Accordion) ---
-function renderSummaryTable(parent){
-  const dur=fm().filter(d=>d.metric.includes('duration'));
-  if(!dur.length)return;
-  const g={};dur.forEach(d=>{const k=d.vus+'|'+d.tc+'|'+d.api;if(!g[k])g[k]={vus:d.vus,tc:d.tc,api:d.api,v:[]};g[k].v.push(d.value)});
-  const rows=Object.values(g).map(x=>{const s=x.v.sort((a,b)=>a-b);const n=s.length;return{vus:x.vus,tc:x.tc.toUpperCase(),api:x.api.toUpperCase(),n,
-    avg:(s.reduce((a,b)=>a+b,0)/n).toFixed(2),min:s[0].toFixed(2),p50:s[Math.floor(n*.5)].toFixed(2),p95:s[Math.floor(n*.95)].toFixed(2),
-    p99:s[Math.floor(n*.99)].toFixed(2),p999:s[Math.min(Math.floor(n*.999),n-1)].toFixed(2),max:s[n-1].toFixed(2)}}).sort((a,b)=>a.tc.localeCompare(b.tc)||a.api.localeCompare(b.api));
-  const div=document.createElement('div');div.className='card';div.style.marginBottom='20px';
-  div.innerHTML=`<div class="accordion-toggle open" onclick="this.classList.toggle('open');this.nextElementSibling.style.display=this.classList.contains('open')?'':'none'">
-    <h3 style="font-size:14px;font-weight:700">Performance Summary <span style="font-size:11px;color:var(--sub);font-weight:500">(${rows.length} groups)</span></h3>
-    <span class="arrow">▼</span></div>
-    <div style="overflow-x:auto;margin-top:12px">
-    <table style="width:100%;font-size:11px;border-collapse:collapse">
-    <thead><tr style="border-bottom:2px solid var(--border)">
-    ${['VUs','TC','API','N','Avg','Min','p50','p95','p99','p99.9','Max'].map((h,i)=>`<th style="padding:7px 5px;font-weight:700;text-align:${i>2?'right':'left'};font-size:10px;color:var(--sub)">${h}</th>`).join('')}
-    </tr></thead><tbody>
-    ${rows.map(r=>`<tr style="border-bottom:1px solid #f1f3f5">
-      <td class="mono" style="padding:5px">${r.vus}</td>
-      <td style="padding:5px"><span style="background:#eff6ff;color:var(--accent);font-size:10px;font-weight:700;padding:2px 6px;border-radius:4px">${r.tc}</span></td>
-      <td style="padding:5px;color:${gc(r.api)};font-weight:600;font-size:11px">${r.api}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.n}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.avg}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.min}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.p50}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.p95}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.p99}</td>
-      <td class="mono" style="padding:5px;text-align:right;font-weight:700">${r.p999}</td>
-      <td class="mono" style="padding:5px;text-align:right">${r.max}</td></tr>`).join('')}
-    </tbody></table></div>`;
-  parent.appendChild(div)}
-
-// --- Resource Section (모드별 분리 + DB/API 분리) ---
-function renderResourceSection(parent){
-  const rd=fr();if(!rd.length)return;
-  const modes=[...new Set(rd.map(d=>d.mode))].sort();
-  const modeLabels={standard:'Standard (격리 테스트)',proxy_overhead:'Proxy Overhead (Envoy)'};
-  const sec=document.createElement('div');sec.style.marginBottom='20px';
-  sec.innerHTML=`<div class="section-title"><span class="dot" style="background:var(--orange)"></span>Resource Monitoring</div>
-    <p class="desc">cAdvisor/docker stats에서 수집한 컨테이너별 CPU·메모리 사용량. 테스트 모드별로 분리 표시. X축: 경과 시간(초), Y축: CPU(%), Memory(MiB). DB는 메모리 규모가 다르므로 별도 차트로 분리.</p>`;
+function apiColor(api) {
+  const cssVar = `--color-${api.replace(/_/g, '-')}`;
+  const val = getComputedStyle(document.documentElement).getPropertyValue(cssVar).trim();
   
-  modes.forEach(mode=>{
-    const mData=rd.filter(d=>d.mode===mode).sort((a,b)=>a.time-b.time);
-    if(!mData.length)return;
-    const t0=mData[0].time;
-    const containers=[...new Set(mData.map(d=>d.container))].sort();
-    const apiContainers=containers.filter(c=>c!=='DB');
-    const dbContainers=containers.filter(c=>c==='DB');
+  if (val) {
+    return val;
+  }
+  
+  let h = 0; 
+  for (let i = 0; i < api.length; i++) { 
+    h = (h * 31 + api.charCodeAt(i)) & 0xffffffff; 
+  }
+  
+  return `hsl(${Math.abs(h) % 360}, 70%, 50%)`;
+}
 
-    const grid=document.createElement('div');
-    grid.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px';
+function parseNum(v) {
+  if (v === null || v === undefined) {
+    return null;
+  }
+  const s = String(v).trim();
+  if (s === '' || s.toLowerCase() === 'nan' || s.toLowerCase() === 'null') {
+    return null;
+  }
+  
+  const n = parseFloat(s);
+  return Number.isFinite(n) ? n : null;
+}
 
-    // CPU chart
-    const cpuId='res_cpu_'+mode;
-    grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — CPU Usage (%)</h4><div style="height:220px"><canvas id="${cpuId}"></canvas></div></div>`;
-    // Memory API chart
-    const memApiId='res_memapi_'+mode;
-    grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — Memory: API 서버 (MiB)</h4><div style="height:220px"><canvas id="${memApiId}"></canvas></div></div>`;
-    // Memory DB chart
-    if(dbContainers.length){
-      const memDbId='res_memdb_'+mode;
-      grid.innerHTML+=`<div class="card" style="padding:14px"><h4 style="font-size:12px;font-weight:700;margin-bottom:6px">${modeLabels[mode]||mode} — Memory: DB (MiB)</h4><div style="height:220px"><canvas id="${memDbId}"></canvas></div></div>`;
+function clean(arr) { 
+  return arr.filter(v => v !== null && v !== undefined && !Number.isNaN(v)); 
+}
+
+function percentile(arr, p) {
+  const a = clean(arr).slice().sort((x, y) => x - y);
+  
+  if (!a.length) {
+    return null;
+  }
+  
+  const idx = (a.length - 1) * p;
+  const lo = Math.floor(idx);
+  const hi = Math.ceil(idx);
+  
+  if (lo === hi) {
+    return a[lo];
+  }
+  
+  return a[lo] + (a[hi] - a[lo]) * (idx - lo);
+}
+
+function mean(arr) { 
+  const a = clean(arr); 
+  return a.length ? a.reduce((s, v) => s + v, 0) / a.length : null; 
+}
+
+function min_(arr) { 
+  const a = clean(arr); 
+  return a.length ? Math.min(...a) : null; 
+}
+
+function max_(arr) { 
+  const a = clean(arr); 
+  return a.length ? Math.max(...a) : null; 
+}
+
+let cardCounter = 0;
+
+function createUploadCard() {
+  cardCounter++;
+  const id = `card-${cardCounter}`;
+  const grid = document.getElementById('upload-grid');
+  const card = document.createElement('div');
+  
+  card.className = 'upload-card';
+  card.id = id;
+  card.dataset.empty = 'true';
+  card.innerHTML = `
+    <button class="remove-btn" title="Remove">×</button>
+    <div class="card-label">Dataset Slot</div>
+    <div class="card-vus">—<span class="unit">VUs</span></div>
+    <div class="file-input-wrap">
+      <label class="file-btn" for="${id}-input">폴더 선택</label>
+      <input type="file" id="${id}-input" webkitdirectory directory multiple>
+    </div>
+    <div class="card-stats"></div>
+  `;
+  
+  const addCard = grid.querySelector('.add-new');
+  grid.insertBefore(card, addCard);
+  
+  card.querySelector('.remove-btn').onclick = () => removeCard(id);
+  card.querySelector('input').onchange = (e) => handleFiles(id, e.target.files);
+}
+
+function removeCard(id) {
+  const card = document.getElementById(id);
+  if (!card) {
+    return;
+  }
+  
+  card.remove();
+  state.datasets = state.datasets.filter(d => d.id !== id);
+  rebuildFilters();
+  renderAll();
+}
+
+async function handleFiles(cardId, fileList) {
+  const files = Array.from(fileList).filter(f => f.name.toLowerCase().endsWith('.csv'));
+  
+  if (!files.length) { 
+    alert('CSV 파일이 없습니다.'); 
+    return; 
+  }
+  
+  const card = document.getElementById(cardId);
+  const statsEl = card.querySelector('.card-stats');
+  statsEl.innerHTML = `<span class="spinner"></span> ${files.length}개 파일 분석 중...`;
+
+  const parsed = await Promise.all(files.map(parseCSVFile));
+  const allRows = parsed.flat();
+  
+  if (!allRows.length) { 
+    statsEl.innerHTML = '<span style="color:var(--accent-3)">유효한 데이터 없음</span>'; 
+    return; 
+  }
+
+  const vusValues = [...new Set(allRows.map(r => r.vus).filter(v => v != null))];
+  const primaryVus = vusValues.length === 1 ? vusValues[0] : vusValues.sort((a,b) => a - b)[0];
+  const apisByTC = {};
+  
+  for (const r of allRows) {
+    if (!r.tc || !r.api) {
+      continue;
     }
-    sec.appendChild(grid);
+    if (!apisByTC[r.tc]) {
+      apisByTC[r.tc] = new Set();
+    }
+    apisByTC[r.tc].add(r.api);
+  }
 
-    setTimeout(()=>{
-      function mkDs(conts,field){return conts.map(c=>{
-        const pts=mData.filter(d=>d.container===c);
-        return{label:c,data:pts.map(d=>({x:+((d.time-t0)/1000).toFixed(1),y:d[field]})),
-          borderColor:C[c]||'#64748b',backgroundColor:(C[c]||'#64748b')+'15',borderWidth:2,tension:.2,pointRadius:0,fill:true}})}
-      const opts=yL=>({responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
-        plugins:{legend:{labels:{font:{size:10,weight:'600',family:'IBM Plex Sans'},usePointStyle:true,padding:10}}},
-        scales:{x:{type:'linear',title:{display:true,text:'Elapsed (s)',font:{size:10,weight:'600'}},ticks:{callback:v=>v+'s',font:{size:9}}},
-          y:{beginAtZero:true,title:{display:true,text:yL,font:{size:10,weight:'600'}},ticks:{font:{size:9}}}}});
-      dc(cpuId);S.charts[cpuId]=new Chart(document.getElementById(cpuId),{type:'line',data:{datasets:mkDs(containers,'cpu')},options:opts('CPU (%)')});
-      dc(memApiId);S.charts[memApiId]=new Chart(document.getElementById(memApiId),{type:'line',data:{datasets:mkDs(apiContainers,'memory')},options:opts('Memory (MiB)')});
-      if(dbContainers.length){const memDbId='res_memdb_'+mode;dc(memDbId);
-        S.charts[memDbId]=new Chart(document.getElementById(memDbId),{type:'line',data:{datasets:mkDs(dbContainers,'memory')},options:opts('Memory (MiB)')})}
-    },20)});
-  parent.appendChild(sec)}
+  state.datasets = state.datasets.filter(d => d.id !== cardId);
+  state.datasets.push({ 
+    id: cardId, 
+    name: `VUs ${primaryVus}`, 
+    vus: primaryVus, 
+    vusAll: vusValues, 
+    rows: allRows, 
+    apisByTC: apisByTC, 
+    fileCount: files.length 
+  });
 
-// --- TC Cards (통합 뷰: 핵심 메트릭을 한 카드에) ---
-function renderTCCards(parent){
-  const data=fm();if(!data.length)return;
-  const tcs=[...new Set(data.map(d=>d.tc))].sort();
-  const sec=document.createElement('div');
-  sec.innerHTML=`<div class="section-title"><span class="dot" style="background:var(--accent)"></span>TC별 성능 분석</div>`;
+  card.dataset.empty = 'false';
+  card.classList.add('has-data');
+  card.querySelector('.card-vus').innerHTML = `${primaryVus}<span class="unit">VUs</span>`;
+  
+  const tcList = Object.keys(apisByTC).sort(naturalCmp);
+  statsEl.innerHTML = `파일: ${files.length}개 · 데이터: ${allRows.length.toLocaleString()}행<br>TC: ${tcList.length}개 · API: ${[...new Set(allRows.map(r => r.api))].length}개`;
 
-  tcs.forEach(tc=>{
-    const tcData=data.filter(d=>d.tc===tc);
-    const card=document.createElement('div');card.className='card';card.style.marginBottom='16px';
-    const label=TL[tc]||'';
+  rebuildFilters();
+  renderAll();
+}
+
+function parseCSVFile(file) {
+  return new Promise(resolve => {
+    Papa.parse(file, {
+      header: true, 
+      skipEmptyLines: true,
+      transformHeader: h => h.replace(/^\uFEFF/, '').trim(),
+      complete: (res) => resolve(res.data.map(normalizeRow).filter(r => r !== null)),
+      error: () => resolve([]),
+    });
+  });
+}
+
+function normalizeRow(r) {
+  if (!r) {
+    return null;
+  }
+  
+  const api = (r.api || '').trim().toLowerCase();
+  const tc  = (r.tc  || '').trim().toLowerCase();
+  
+  if (!api || !tc) {
+    return null;
+  }
+  
+  const isGrpc = api.startsWith('grpc');
+  const grpcDur = parseNum(r.grpc_req_duration);
+  const httpDur = parseNum(r.http_req_duration);
+  
+  return {
+    time: r.time ? new Date(r.time.replace(' ', 'T')) : null,
+    api: api, 
+    tc: tc, 
+    runId: r.run_id || '', 
+    testType: r.test_type || '', 
+    vus: parseNum(r.vus_group),
+    duration: isGrpc ? grpcDur : httpDur,
+    http_req_failed: parseNum(r.http_req_failed), 
+    checks: parseNum(r.checks),
+    cpu: { 
+      db: parseNum(r.benchmark_db_cpu_perc), 
+      envoy: parseNum(r.benchmark_envoy_cpu_perc), 
+      graphql: parseNum(r.benchmark_graphql_cpu_perc), 
+      grpc: parseNum(r.benchmark_grpc_cpu_perc), 
+      rest: parseNum(r.benchmark_rest_cpu_perc) 
+    },
+    mem: { 
+      db: parseNum(r.benchmark_db_mem_usage), 
+      envoy: parseNum(r.benchmark_envoy_mem_usage), 
+      graphql: parseNum(r.benchmark_graphql_mem_usage), 
+      grpc: parseNum(r.benchmark_grpc_mem_usage), 
+      rest: parseNum(r.benchmark_rest_mem_usage) 
+    },
+  };
+}
+
+function rebuildFilters() {
+  const allVus = [...new Set(state.datasets.map(d => d.vus).filter(v => v != null))].sort((a,b) => a - b);
+  const allTc  = [...new Set(state.datasets.flatMap(d => Object.keys(d.apisByTC)))].sort(naturalCmp);
+  const allApi = [...new Set(state.datasets.flatMap(d => d.rows.map(r => r.api)))].sort();
+
+  if (state.filters.vus.size === 0 && state.filters.tc.size === 0 && state.filters.api.size === 0) {
+    state.filters.vus = new Set(allVus); 
+    state.filters.tc = new Set(allTc); 
+    state.filters.api = new Set(allApi);
+  } else {
+    state.filters.vus = new Set([...state.filters.vus].filter(v => allVus.includes(v)));
+    state.filters.tc  = new Set([...state.filters.tc ].filter(v => allTc.includes(v)));
+    state.filters.api = new Set([...state.filters.api].filter(v => allApi.includes(v)));
     
-    // 해당 TC에서 사용 가능한 메트릭 분류
-    const durData=tcData.filter(d=>d.metric.includes('duration'));
-    const waitData=tcData.filter(d=>d.metric==='http_req_waiting');
-    const sendData=tcData.filter(d=>d.metric==='http_req_sending');
-    const recvData=tcData.filter(d=>d.metric==='http_req_receiving');
-    const blockData=tcData.filter(d=>d.metric==='http_req_blocked');
-    const connData=tcData.filter(d=>d.metric==='http_req_connecting');
+    allVus.forEach(v => state.filters.vus.add(v));
+    allTc.forEach(v => state.filters.tc.add(v));
+    allApi.forEach(v => state.filters.api.add(v));
+  }
 
-    // 차트 레이아웃 결정
-    const charts=[];
-    if(durData.length) charts.push({id:`tc_dur_${tc}`,data:durData,title:'Latency (ms)',desc:ML.http_req_duration,unit:'ms'});
-    if(waitData.length) charts.push({id:`tc_wait_${tc}`,data:waitData,title:'TTFB / Waiting (ms)',desc:ML.http_req_waiting,unit:'ms'});
-    if(sendData.length) charts.push({id:`tc_send_${tc}`,data:sendData,title:'Sending (ms)',desc:ML.http_req_sending,unit:'ms'});
-    if(recvData.length) charts.push({id:`tc_recv_${tc}`,data:recvData,title:'Receiving (ms)',desc:ML.http_req_receiving,unit:'ms'});
-    if(blockData.length) charts.push({id:`tc_block_${tc}`,data:blockData,title:'Blocked (ms)',desc:ML.http_req_blocked,unit:'ms'});
-    if(connData.length) charts.push({id:`tc_conn_${tc}`,data:connData,title:'Connecting (ms)',desc:ML.http_req_connecting,unit:'ms'});
+  renderFilterRow('filter-vus', allVus, 'vus', v => `${v}`);
+  renderFilterRow('filter-tc',  allTc,  'tc',  v => v.toUpperCase());
+  renderFilterRow('filter-api', allApi, 'api', v => v);
 
-    // 헤더
-    let html=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-      <span style="background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:3px 8px;border-radius:5px">${tc.toUpperCase()}</span>
-      <span style="font-size:13px;font-weight:700">${label}</span></div>`;
+  applyTcApiConstraint();
+  
+  document.getElementById('filter-section').style.display = allVus.length ? '' : 'none';
+  document.getElementById('initial-empty').style.display = allVus.length ? 'none' : '';
+}
+
+function renderFilterRow(containerId, values, kind, labelFn) {
+  const el = document.getElementById(containerId);
+  el.innerHTML = '';
+  
+  if (!values.length) {
+    return;
+  }
+  
+  const allChip = document.createElement('div');
+  allChip.className = 'chip all'; 
+  allChip.textContent = 'ALL';
+  
+  allChip.onclick = () => {
+    const targets = kind === 'api' ? values.filter(v => !isApiDisabled(v)) : values;
     
-    // p99.9 미니 테이블
-    if(durData.length){
-      const ag={};durData.forEach(d=>{if(!ag[d.api])ag[d.api]=[];ag[d.api].push(d.value)});
-      html+=`<div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px">`;
-      Object.entries(ag).sort().forEach(([api,vals])=>{
-        const s=vals.sort((a,b)=>a-b);const n=s.length;
-        const avg=(s.reduce((a,b)=>a+b,0)/n).toFixed(2);
-        const p999=s[Math.min(Math.floor(n*.999),n-1)].toFixed(2);
-        html+=`<div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:8px 12px;min-width:120px">
-          <div style="font-size:10px;font-weight:700;color:${gc(api)};margin-bottom:4px">${api.toUpperCase()}</div>
-          <div style="font-size:10px;color:var(--sub)">Avg: <span class="mono" style="font-weight:600">${avg} ms</span></div>
-          <div style="font-size:10px;color:var(--sub)">p99.9: <span class="mono" style="font-weight:700">${p999} ms</span></div>
-          <div style="font-size:10px;color:var(--sub)">Samples: <span class="mono">${n}</span></div></div>`});
-      html+=`</div>`}
+    if (targets.every(v => state.filters[kind].has(v))) { 
+      targets.forEach(v => state.filters[kind].delete(v)); 
+    } else { 
+      targets.forEach(v => state.filters[kind].add(v)); 
+    }
+    
+    if (kind === 'tc') {
+      applyTcApiConstraint();
+    }
+    
+    syncChipStates(); 
+    renderAll();
+  };
+  
+  el.appendChild(allChip);
 
-    // 차트 그리드
-    const cols=charts.length===1?'1fr':charts.length<=2?'1fr 1fr':'1fr 1fr 1fr';
-    html+=`<div style="display:grid;grid-template-columns:${cols};gap:12px">`;
-    charts.forEach(ch=>{
-      html+=`<div style="border:1px solid var(--border);border-radius:8px;padding:10px">
-        <div style="font-size:11px;font-weight:700;margin-bottom:2px">${ch.title}</div>
-        <div style="font-size:9px;color:var(--sub);margin-bottom:8px">${ch.desc.split('—')[1]||''}</div>
-        <div style="height:200px"><canvas id="${ch.id}"></canvas></div></div>`});
-    html+=`</div>`;
-    card.innerHTML=html;sec.appendChild(card);
+  for (const v of values) {
+    const c = document.createElement('div');
+    c.className = 'chip'; 
+    c.textContent = labelFn(v); 
+    c.dataset.kind = kind; 
+    c.dataset.value = v;
+    
+    c.onclick = () => {
+      if (c.classList.contains('disabled')) {
+        return;
+      }
+      
+      if (state.filters[kind].has(v)) {
+        state.filters[kind].delete(v); 
+      } else {
+        state.filters[kind].add(v);
+      }
+      
+      if (kind === 'tc') {
+        applyTcApiConstraint();
+      }
+      
+      syncChipStates(); 
+      renderAll();
+    };
+    
+    el.appendChild(c);
+  }
+  syncChipStates();
+}
 
-    // 차트 렌더링
-    setTimeout(()=>{charts.forEach(ch=>{
-      const ctx=document.getElementById(ch.id);if(!ctx)return;
-      const ag={};ch.data.forEach(d=>{if(!ag[d.api])ag[d.api]=[];ag[d.api].push(d)});
-      const datasets=Object.entries(ag).map(([api,rows])=>{
-        rows.sort((a,b)=>a.time-b.time);const s=rows[0].time;
-        return{label:api.toUpperCase(),data:rows.map(d=>({x:+((d.time-s)/1000).toFixed(1),y:d.value})),
-          borderColor:gc(api),borderWidth:2,tension:.2,pointRadius:0,fill:false}});
-      dc(ch.id);S.charts[ch.id]=new Chart(ctx,{type:'line',data:{datasets},
-        options:{responsive:true,maintainAspectRatio:false,animation:false,interaction:{mode:'index',intersect:false},
-          plugins:{legend:{labels:{font:{size:9,weight:'600'},usePointStyle:true,padding:8}}},
-          scales:{x:{type:'linear',ticks:{callback:v=>v+'s',font:{size:8}},title:{display:true,text:'경과 시간 (초)',font:{size:9}}},
-            y:{beginAtZero:true,ticks:{font:{size:8}},title:{display:true,text:ch.unit,font:{size:9}}}}}})})},30)});
-  parent.appendChild(sec)}
+function isApiDisabled(api) {
+  const selectedTcs = [...state.filters.tc];
+  
+  if (!selectedTcs.length) {
+    return false;
+  }
+  
+  for (const ds of state.datasets) {
+    for (const tc of selectedTcs) { 
+      if (ds.apisByTC[tc] && ds.apisByTC[tc].has(api)) {
+        return false; 
+      }
+    }
+  }
+  return true;
+}
 
-// --- Export ---
-async function exportZip(){const ids=Object.keys(S.charts);if(!ids.length)return alert('차트 없음');
-  const zip=new JSZip();for(const id of ids){const cv=document.getElementById(id);if(!cv)continue;
-    const t=document.createElement('canvas');t.width=cv.width;t.height=cv.height;const c=t.getContext('2d');
-    c.fillStyle='#fff';c.fillRect(0,0,t.width,t.height);c.drawImage(cv,0,0);
-    zip.file(id+'.png',t.toDataURL('image/png').split(',')[1],{base64:true})}
-  const blob=await zip.generateAsync({type:'blob'});const a=document.createElement('a');
-  a.href=URL.createObjectURL(blob);a.download='benchmark_'+Date.now()+'.zip';a.click()}
+function applyTcApiConstraint() {
+  const selectedTcs = [...state.filters.tc];
+  const validApis = new Set();
+  
+  for (const ds of state.datasets) {
+    for (const tc of selectedTcs) { 
+      if (ds.apisByTC[tc]) {
+        ds.apisByTC[tc].forEach(a => validApis.add(a)); 
+      }
+    }
+  }
+  
+  for (const a of [...state.filters.api]) { 
+    if (!validApis.has(a)) {
+      state.filters.api.delete(a); 
+    }
+  }
+  
+  validApis.forEach(a => state.filters.api.add(a));
+}
+
+function syncChipStates() {
+  document.querySelectorAll('.chip').forEach(c => {
+    if (c.classList.contains('all')) {
+      const kind = c.parentElement.id.replace('filter-', '');
+      const values = [...c.parentElement.querySelectorAll('.chip:not(.all)')]
+        .filter(x => !x.classList.contains('disabled'))
+        .map(x => castFilterValue(kind, x.dataset.value));
+        
+      c.classList.toggle('active', values.length > 0 && values.every(v => state.filters[kind].has(v)));
+      return;
+    }
+    
+    const kind = c.dataset.kind;
+    c.classList.toggle('active', state.filters[kind].has(castFilterValue(kind, c.dataset.value)));
+  });
+  
+  const selectedTcs = [...state.filters.tc];
+  const validApis = new Set();
+  
+  for (const ds of state.datasets) { 
+    for (const tc of selectedTcs) { 
+      if (ds.apisByTC[tc]) {
+        ds.apisByTC[tc].forEach(a => validApis.add(a)); 
+      }
+    } 
+  }
+  
+  document.querySelectorAll('#filter-api .chip:not(.all)').forEach(c => {
+    const disabled = selectedTcs.length > 0 && !validApis.has(c.dataset.value);
+    c.classList.toggle('disabled', disabled);
+    if (disabled) {
+      c.classList.remove('active');
+    }
+  });
+}
+
+function castFilterValue(kind, v) { 
+  return kind === 'vus' ? parseFloat(v) : v; 
+}
+
+function getFilteredRows() {
+  const out = [];
+  
+  for (const ds of state.datasets) {
+    if (!state.filters.vus.has(ds.vus)) {
+      continue;
+    }
+    
+    for (const r of ds.rows) {
+      if (!state.filters.tc.has(r.tc) || !state.filters.api.has(r.api)) {
+        continue;
+      }
+      out.push({ ...r, _vus: ds.vus });
+    }
+  }
+  
+  return out;
+}
+
+function groupBy(rows, keyFn) {
+  const m = new Map();
+  
+  for (const r of rows) {
+    const k = keyFn(r);
+    if (!m.has(k)) {
+      m.set(k, []);
+    }
+    m.get(k).push(r);
+  }
+  
+  return m;
+}
+
+function computeStats(rows) {
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const result = [];
+  
+  for (const [key, rs] of groups) {
+    const [vus, tc, api] = key.split('|');
+    const durs = rs.map(r => r.duration);
+    const checks = rs.map(r => r.checks);
+    const containers = apiToContainers(api);
+    
+    const cpuVals = rs.flatMap(r => containers.map(c => r.cpu[c])).filter(v => v != null);
+    const memVals = rs.flatMap(r => containers.map(c => r.mem[c])).filter(v => v != null);
+    const times = rs.map(r => r.time).filter(Boolean).sort((a,b) => a - b);
+    
+    const durationSec = times.length > 1 ? (times[times.length-1] - times[0]) / 1000 : 1;
+    const tps = clean(durs).length / Math.max(durationSec, 1);
+
+    result.push({
+      vus: parseFloat(vus), 
+      tc: tc, 
+      api: api, 
+      n: clean(durs).length,
+      duration_mean: mean(durs), 
+      duration_p50: percentile(durs, 0.50), 
+      duration_p95: percentile(durs, 0.95), 
+      duration_p99: percentile(durs, 0.99), 
+      duration_max: max_(durs),
+      cpu_mean: mean(cpuVals), 
+      mem_mean: mean(memVals), 
+      tps: tps,
+      cpu_per_req: (mean(cpuVals) != null && tps > 0) ? mean(cpuVals) / tps : null,
+      check_pass: (() => { 
+        const c = clean(checks); 
+        return c.length ? c.reduce((s,v) => s + v, 0) / c.length : null; 
+      })(),
+      err_rate: (() => { 
+        const f = clean(rs.map(r => r.http_req_failed)); 
+        return f.length ? f.reduce((s,v) => s + v, 0) / f.length : null; 
+      })()
+    });
+  }
+  
+  return result;
+}
+
+function apiToContainers(api) {
+  const a = api.toLowerCase();
+  
+  if (a.includes('envoy')) {
+    return ['envoy', 'grpc', 'db'];
+  }
+  if (a.startsWith('graphql')) {
+    return ['graphql', 'db'];
+  }
+  if (a.startsWith('grpc')) {
+    return ['grpc', 'db'];
+  }
+  if (a.startsWith('rest')) {
+    return ['rest', 'db'];
+  }
+  
+  return ['db'];
+}
+
+const STATS_COLUMNS = [
+  { key: 'vus', label: 'VUs', fmt: v => v },
+  { key: 'tc', label: 'TC', fmt: v => v.toUpperCase() },
+  { key: 'api', label: 'API', fmt: v => v, isApi: true },
+  { key: 'n', label: 'Count(n)', fmt: v => v.toLocaleString() },
+  { key: 'duration_mean', label: 'Mean', fmt: fmtMs },
+  { key: 'duration_p50', label: 'p50', fmt: fmtMs },
+  { key: 'duration_p95', label: 'p95', fmt: fmtMs },
+  { key: 'duration_p99', label: 'p99', fmt: fmtMs },
+  { key: 'duration_max', label: 'Max', fmt: fmtMs },
+  { key: 'tps', label: 'TPS', fmt: v => v == null ? '—' : v.toFixed(1) },
+  { key: 'cpu_mean', label: 'CPU %', fmt: v => v == null ? '—' : v.toFixed(2) },
+  { key: 'mem_mean', label: 'Mem MB', fmt: v => v == null ? '—' : v.toFixed(1) },
+  { key: 'cpu_per_req', label: 'CPU/Req', fmt: v => v == null ? '—' : v.toFixed(3) },
+  { key: 'check_pass', label: 'Check OK', fmt: v => v == null ? '—' : (v*100).toFixed(1) + '%' }
+];
+
+function fmtMs(v) {
+  if (v == null) {
+    return '—';
+  }
+  if (v >= 1000) {
+    return (v/1000).toFixed(2) + 's';
+  }
+  if (v >= 1) {
+    return v.toFixed(2) + 'ms';
+  }
+  return (v*1000).toFixed(1) + 'µs';
+}
+
+function renderStatsTable(stats) {
+  const head = document.getElementById('stats-head');
+  const body = document.getElementById('stats-body');
+  head.innerHTML = ''; 
+  body.innerHTML = '';
+
+  STATS_COLUMNS.forEach(col => {
+    const th = document.createElement('th'); 
+    th.textContent = col.label; 
+    th.dataset.key = col.key;
+    
+    if (state.sortBy.col === col.key) { 
+      th.classList.add('sort-' + state.sortBy.dir); 
+    }
+    
+    th.onclick = () => {
+      if (state.sortBy.col === col.key) {
+        state.sortBy.dir = state.sortBy.dir === 'asc' ? 'desc' : 'asc';
+      } else { 
+        state.sortBy.col = col.key; 
+        state.sortBy.dir = 'asc'; 
+      }
+      renderStatsTable(stats);
+    };
+    head.appendChild(th);
+  });
+
+  const sorted = [...stats].sort((a, b) => {
+    const va = a[state.sortBy.col];
+    const vb = b[state.sortBy.col];
+    
+    if (va == null && vb == null) return 0;
+    if (va == null) return 1;
+    if (vb == null) return -1;
+    if (typeof va === 'string') return state.sortBy.dir === 'asc' ? va.localeCompare(vb) : vb.localeCompare(va);
+    
+    return state.sortBy.dir === 'asc' ? va - vb : vb - va;
+  });
+
+  for (const row of sorted) {
+    const tr = document.createElement('tr');
+    
+    for (const col of STATS_COLUMNS) {
+      const td = document.createElement('td'); 
+      const val = row[col.key];
+      
+      if (col.isApi) {
+        td.classList.add('api-cell');
+        td.innerHTML = `<span class="arch-dot" style="background:${apiColor(val)}"></span>${col.fmt(val)}`;
+      } else {
+        td.textContent = col.fmt(val);
+        if (typeof val === 'number') {
+          td.classList.add(val === 0 ? 'num-lo' : 'num-hi');
+        }
+      }
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  
+  document.getElementById('stats-section').style.display = stats.length ? '' : 'none';
+}
+
+function chartBase() {
+  const isDark = document.body.classList.contains('theme-dark');
+  const text = isDark ? '#f8fafc' : '#0f172a';
+  const grid = isDark ? '#334155' : '#e2e8f0';
+  const subText = isDark ? '#cbd5e1' : '#475569';
+  const fontConfig = { family: 'Pretendard, sans-serif', size: 12 };
+  
+  return {
+    responsive: true, 
+    maintainAspectRatio: false, 
+    animation: { duration: 200 },
+    plugins: {
+      legend: { 
+        labels: { 
+          color: text, 
+          font: fontConfig, 
+          boxWidth: 12 
+        }, 
+        position: 'top', 
+        align: 'end' 
+      },
+      tooltip: { 
+        backgroundColor: isDark ? '#1e293b' : '#ffffff', 
+        titleColor: text, 
+        bodyColor: subText, 
+        borderColor: grid, 
+        borderWidth: 1, 
+        titleFont: { ...fontConfig, weight: '700' }, 
+        bodyFont: fontConfig, 
+        padding: 12 
+      }
+    },
+    scales: {
+      x: { 
+        ticks: { color: subText, font: fontConfig }, 
+        grid: { color: grid } 
+      },
+      y: { 
+        ticks: { color: subText, font: fontConfig }, 
+        grid: { color: grid } 
+      }
+    }
+  };
+}
+
+function destroyChart(key) { 
+  if (state.charts[key]) { 
+    state.charts[key].destroy(); 
+    delete state.charts[key]; 
+  } 
+}
+
+function groupLabel(vus, tc, api) { 
+  return `${tc.toUpperCase()} · ${api} · ${vus}vu`; 
+}
+
+function renderDistChart(rows) {
+  const key = 'dist'; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a, b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const labels = [];
+  const dataValues = [];
+  const colors = [];
+  
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const values = clean(rs.map(r => r.duration));
+    if (!values.length) continue;
+    
+    labels.push(groupLabel(vus, tc, api)); 
+    dataValues.push(values); 
+    colors.push(apiColor(api));
+  }
+  
+  const ctx = document.getElementById('chart-dist').getContext('2d');
+  const type = state.chartTypes[key];
+
+  if (type === 'box') {
+    state.charts[key] = new Chart(ctx, { 
+      type: 'boxplot', 
+      data: { 
+        labels: labels, 
+        datasets: [{ 
+          label: 'Duration (ms)', 
+          data: dataValues, 
+          backgroundColor: colors.map(c => c + '55'), 
+          borderColor: colors, 
+          borderWidth: 1.5, 
+          outlierRadius: 2, 
+          itemRadius: 0 
+        }] 
+      }, 
+      options: { 
+        ...chartBase(), 
+        scales: { 
+          ...chartBase().scales, 
+          y: { 
+            ...chartBase().scales.y, 
+            title: { 
+              display: true, 
+              text: 'Duration (ms)', 
+              color: chartBase().scales.y.ticks.color 
+            } 
+          } 
+        } 
+      } 
+    });
+  } else {
+    state.charts[key] = new Chart(ctx, { 
+      type: type === 'line' ? 'line' : 'bar', 
+      data: { 
+        labels: labels, 
+        datasets: [{ 
+          label: 'Mean Duration (ms)', 
+          data: dataValues.map(v => mean(v)), 
+          backgroundColor: type === 'line' ? colors.map(c=>c+'33') : colors, 
+          borderColor: colors, 
+          borderWidth: type === 'line' ? 2 : 0, 
+          tension: 0.2, 
+          fill: false 
+        }] 
+      }, 
+      options: chartBase() 
+    });
+  }
+}
+
+function renderPctChart(rows) {
+  const key = 'pct'; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const labels = ['p50', 'p95', 'p99'];
+  const datasets = [];
+  const type = state.chartTypes[key];
+  const isLineBase = type === 'line' || type === 'points';
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const durs = rs.map(r => r.duration);
+    const values = [percentile(durs, 0.5), percentile(durs, 0.95), percentile(durs, 0.99)];
+    
+    if (values.every(v => v == null)) continue;
+    
+    const color = apiColor(api);
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: values, 
+      borderColor: color, 
+      backgroundColor: isLineBase ? color + '22' : color, 
+      borderWidth: 2, 
+      fill: false, 
+      tension: 0.3,
+      type: isLineBase ? 'line' : 'bar',
+      showLine: type !== 'points', 
+      pointRadius: type === 'points' ? 6 : 3
+    });
+  }
+  
+  const ctx = document.getElementById('chart-pct').getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'bar', // Base type (mixed chart)
+    data: { 
+      labels: labels, 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        ...chartBase().scales, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Duration (ms)', 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderTpsChart(rows) {
+  const key = 'tps'; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const datasets = [];
+  const type = state.chartTypes[key];
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
+    
+    if (!withTime.length) continue;
+    
+    const t0 = withTime[0].time;
+    const bucket = new Map();
+    
+    for (const r of withTime) { 
+      const sec = Math.floor((r.time - t0) / 1000); 
+      bucket.set(sec, (bucket.get(sec) || 0) + 1); 
+    }
+    
+    const pts = [...bucket.entries()].sort((a,b) => a[0] - b[0]).map(([t, n]) => ({ x: t, y: n }));
+    const color = apiColor(api);
+    
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: pts, 
+      borderColor: color, 
+      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
+      borderWidth: type === 'bar' ? 0 : 2, 
+      fill: type === 'area', 
+      tension: 0.3, 
+      pointRadius: 0,
+      type: type === 'bar' ? 'bar' : 'line'
+    });
+  }
+  
+  const ctx = document.getElementById('chart-tps').getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'line', 
+    data: { 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: { 
+          type: 'linear', 
+          ticks: chartBase().scales.x.ticks, 
+          grid: chartBase().scales.x.grid, 
+          title: { 
+            display: true, 
+            text: 'Elapsed (s)', 
+            color: chartBase().scales.x.ticks.color 
+          } 
+        }, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Req / s', 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderCpuChart(rows) { 
+  return renderResourceTimeseries('cpu', 'chart-cpu', rows, 'CPU %'); 
+}
+
+function renderMemChart(rows) { 
+  return renderResourceTimeseries('mem', 'chart-mem', rows, 'Memory (MB)'); 
+}
+
+function renderResourceTimeseries(field, canvasId, rows, axisLabel) {
+  const key = field; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const datasets = [];
+  const type = state.chartTypes[key];
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
+    
+    if (!withTime.length) continue;
+    
+    const containers = apiToContainers(api);
+    const t0 = withTime[0].time;
+    const pts = [];
+    
+    for (const r of withTime) {
+      const vs = containers.map(c => r[field][c]).filter(v => v != null);
+      if (vs.length) {
+        pts.push({ x: (r.time - t0) / 1000, y: vs.reduce((s,v) => s + v, 0) });
+      }
+    }
+    
+    if (!pts.length) continue;
+    
+    const color = apiColor(api);
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: pts, 
+      borderColor: color, 
+      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
+      borderWidth: type === 'bar' ? 0 : 2, 
+      fill: type === 'area', 
+      tension: 0.25, 
+      pointRadius: 0,
+      type: type === 'bar' ? 'bar' : 'line'
+    });
+  }
+  
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'line', 
+    data: { 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: { 
+          type: 'linear', 
+          ticks: chartBase().scales.x.ticks, 
+          grid: chartBase().scales.x.grid, 
+          title: { 
+            display: true, 
+            text: 'Elapsed (s)', 
+            color: chartBase().scales.x.ticks.color 
+          } 
+        }, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: axisLabel, 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderEffChart(stats) {
+  const key = 'eff'; 
+  destroyChart(key); 
+  
+  if (!stats.length) return;
+  
+  const sorted = [...stats].sort((a,b) => {
+    return naturalCmp(a.tc, b.tc) || 
+           a.api.localeCompare(b.api) || 
+           a.vus - b.vus;
+  });
+  
+  const ctx = document.getElementById('chart-eff').getContext('2d');
+  const type = state.chartTypes[key];
+
+  if (type === 'scatter') {
+    const datasets = sorted.map(s => ({ 
+      label: groupLabel(s.vus, s.tc, s.api), 
+      data: [{ x: s.tps || 0, y: s.cpu_mean || 0 }], 
+      backgroundColor: apiColor(s.api), 
+      borderColor: apiColor(s.api), 
+      pointRadius: 6 
+    }));
+    
+    state.charts[key] = new Chart(ctx, { 
+      type: 'scatter', 
+      data: { 
+        datasets: datasets 
+      }, 
+      options: { 
+        ...chartBase(), 
+        scales: { 
+          x: { 
+            ...chartBase().scales.x, 
+            title: { 
+              display: true, 
+              text: 'TPS (req/s)', 
+              color: chartBase().scales.x.ticks.color 
+            } 
+          }, 
+          y: { 
+            ...chartBase().scales.y, 
+            title: { 
+              display: true, 
+              text: 'Mean CPU %', 
+              color: chartBase().scales.y.ticks.color 
+            } 
+          } 
+        } 
+      } 
+    });
+  } else {
+    state.charts[key] = new Chart(ctx, { 
+      type: type === 'line' ? 'line' : 'bar', 
+      data: { 
+        labels: sorted.map(s => groupLabel(s.vus, s.tc, s.api)), 
+        datasets: [{ 
+          label: 'CPU % per req/s', 
+          data: sorted.map(s => s.cpu_per_req), 
+          backgroundColor: type === 'line' ? sorted.map(s => apiColor(s.api)+'33') : sorted.map(s => apiColor(s.api)), 
+          borderColor: sorted.map(s => apiColor(s.api)), 
+          borderWidth: type === 'line' ? 2 : 0, 
+          tension: 0.2
+        }] 
+      }, 
+      options: chartBase() 
+    });
+  }
+}
+
+function renderErrChart(stats) {
+  const key = 'err'; 
+  destroyChart(key); 
+  
+  if (!stats.length) return;
+  
+  const sorted = [...stats].sort((a,b) => {
+    return naturalCmp(a.tc, b.tc) || 
+           a.api.localeCompare(b.api) || 
+           a.vus - b.vus;
+  });
+  
+  const ctx = document.getElementById('chart-err').getContext('2d');
+  const warnColor = getComputedStyle(document.documentElement).getPropertyValue('--accent-3').trim();
+  const type = state.chartTypes[key];
+  const isLine = type === 'line' || type === 'points';
+
+  state.charts[key] = new Chart(ctx, { 
+    type: isLine ? 'line' : 'bar', 
+    data: { 
+      labels: sorted.map(s => groupLabel(s.vus, s.tc, s.api)), 
+      datasets: [{ 
+        label: 'Error Rate (%)', 
+        data: sorted.map(s => s.err_rate == null ? null : s.err_rate * 100), 
+        backgroundColor: sorted.map(s => apiColor(s.api)), 
+        borderColor: isLine ? warnColor : sorted.map(s => apiColor(s.api)), 
+        borderWidth: isLine ? 2 : 0, 
+        fill: false, 
+        tension: 0.2,
+        showLine: type !== 'points', 
+        pointRadius: type === 'points' ? 6 : 3
+      }] 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: chartBase().scales.x, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Error Rate (%)', 
+            color: chartBase().scales.y.ticks.color 
+          }, 
+          beginAtZero: true 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderCheckChart(stats) {
+  const key = 'check'; 
+  destroyChart(key); 
+  
+  if (!stats.length) return;
+  
+  const sorted = [...stats].sort((a,b) => {
+    return naturalCmp(a.tc, b.tc) || 
+           a.api.localeCompare(b.api) || 
+           a.vus - b.vus;
+  });
+  
+  const ctx = document.getElementById('chart-check').getContext('2d');
+  
+  state.charts[key] = new Chart(ctx, { 
+    type: 'bar', 
+    data: { 
+      labels: sorted.map(s => groupLabel(s.vus, s.tc, s.api)), 
+      datasets: [{ 
+        label: 'Check Pass Rate (%)', 
+        data: sorted.map(s => s.check_pass == null ? null : s.check_pass * 100), 
+        backgroundColor: sorted.map(s => apiColor(s.api)), 
+        borderWidth: 0 
+      }] 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: chartBase().scales.x, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Check Pass (%)', 
+            color: chartBase().scales.y.ticks.color 
+          }, 
+          min: 0, 
+          max: 100 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderTc3Views(rows, stats) {
+  const byArchStage = {};
+  const archOf = (api) => api.startsWith('rest') ? 'rest' : (api.startsWith('grpc') ? 'grpc' : (api.startsWith('graphql') ? 'graphql' : api));
+  const stageOf = (api) => api.endsWith('_part1') ? 'part1' : (api.endsWith('_part2') ? 'part2' : null);
+  
+  for (const r of rows) {
+    if (r.tc !== 'tc3') continue;
+    const arch = archOf(r.api);
+    const stage = stageOf(r.api);
+    
+    if (!stage || r.duration == null) continue;
+    
+    if (!byArchStage[arch]) {
+      byArchStage[arch] = { part1: [], part2: [] };
+    }
+    byArchStage[arch][stage].push(r.duration);
+  }
+  
+  const archs = Object.keys(byArchStage).sort();
+  const meanOf = (a) => a.length ? a.reduce((s,v) => s + v, 0) / a.length : null;
+
+  destroyChart('tc3-prog');
+  state.charts['tc3-prog'] = new Chart(document.getElementById('chart-tc3-prog').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: ['part1', 'part2'], 
+      datasets: archs.map(arch => ({ 
+        label: arch, 
+        data: [meanOf(byArchStage[arch].part1), meanOf(byArchStage[arch].part2)], 
+        backgroundColor: apiColor(arch) 
+      })) 
+    }, 
+    options: chartBase() 
+  });
+
+  destroyChart('tc3-ratio');
+  state.charts['tc3-ratio'] = new Chart(document.getElementById('chart-tc3-ratio').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: archs, 
+      datasets: [{ 
+        label: 'Part2 / Part1 Ratio', 
+        data: archs.map(a => { 
+          const m1 = meanOf(byArchStage[a].part1);
+          const m2 = meanOf(byArchStage[a].part2); 
+          return (m1 && m2 && m1 > 0) ? (m2 / m1) : null; 
+        }), 
+        backgroundColor: archs.map(apiColor) 
+      }] 
+    }, 
+    options: chartBase() 
+  });
+}
+
+function renderTc7Views(rows, stats) {
+  const byApi = {};
+  const byApiFailed = {};
+  
+  for (const r of rows) {
+    if (r.tc !== 'tc7') continue;
+    
+    if (!byApi[r.api]) { 
+      byApi[r.api] = []; 
+      byApiFailed[r.api] = []; 
+    }
+    
+    if (r.duration != null) {
+      byApi[r.api].push(r.duration);
+    }
+    
+    if (r.http_req_failed != null) {
+      byApiFailed[r.api].push(r.http_req_failed);
+    }
+  }
+  
+  const apis = Object.keys(byApi).sort();
+
+  destroyChart('tc7-dur');
+  state.charts['tc7-dur'] = new Chart(document.getElementById('chart-tc7-dur').getContext('2d'), { 
+    type: 'line', 
+    data: { 
+      labels: ['p50', 'p95', 'p99'], 
+      datasets: apis.map(api => ({ 
+        label: api, 
+        data: [percentile(byApi[api], 0.5), percentile(byApi[api], 0.95), percentile(byApi[api], 0.99)], 
+        borderColor: apiColor(api), 
+        backgroundColor: apiColor(api), 
+        tension: 0.2 
+      })) 
+    }, 
+    options: chartBase() 
+  });
+
+  destroyChart('tc7-err');
+  state.charts['tc7-err'] = new Chart(document.getElementById('chart-tc7-err').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: apis, 
+      datasets: [{ 
+        label: 'Observed Error Rate (%)', 
+        data: apis.map(api => {
+          return byApiFailed[api].length ? (byApiFailed[api].reduce((s,v) => s + v, 0) / byApiFailed[api].length) * 100 : null;
+        }), 
+        backgroundColor: apis.map(apiColor) 
+      }] 
+    }, 
+    options: chartBase() 
+  });
+}
+
+function renderTc9Views(rows, stats) {
+  const byTc = {};
+  
+  for (const r of rows) {
+    if (!(r.api === 'grpc_direct' || r.api === 'grpc_envoy')) continue;
+    
+    if (!byTc[r.tc]) {
+      byTc[r.tc] = { grpc_direct: [], grpc_envoy: [], envoyCpu: [] };
+    }
+    
+    if (r.duration != null) {
+      byTc[r.tc][r.api].push(r.duration);
+    }
+    
+    if (r.api === 'grpc_envoy' && r.cpu && r.cpu.envoy != null) {
+      byTc[r.tc].envoyCpu.push(r.cpu.envoy);
+    }
+  }
+  
+  const tcs = Object.keys(byTc).sort(naturalCmp);
+  const mean = (arr) => arr.length ? arr.reduce((s,v) => s + v, 0) / arr.length : null;
+
+  destroyChart('tc9-delta');
+  state.charts['tc9-delta'] = new Chart(document.getElementById('chart-tc9-delta').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: tcs.map(t => t.toUpperCase()), 
+      datasets: [{ 
+        label: 'Added Latency (ms)', 
+        data: tcs.map(tc => { 
+          const d = mean(byTc[tc].grpc_direct);
+          const e = mean(byTc[tc].grpc_envoy); 
+          return (d != null && e != null) ? e - d : null; 
+        }), 
+        backgroundColor: apiColor('grpc_envoy') 
+      }] 
+    }, 
+    options: chartBase() 
+  });
+
+  destroyChart('tc9-cpu');
+  state.charts['tc9-cpu'] = new Chart(document.getElementById('chart-tc9-cpu').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: tcs.map(t => t.toUpperCase()), 
+      datasets: [{ 
+        label: 'Envoy CPU (%)', 
+        data: tcs.map(tc => mean(byTc[tc].envoyCpu)), 
+        backgroundColor: apiColor('grpc_envoy') 
+      }] 
+    }, 
+    options: chartBase() 
+  });
+
+  destroyChart('tc9-ratio');
+  state.charts['tc9-ratio'] = new Chart(document.getElementById('chart-tc9-ratio').getContext('2d'), { 
+    type: 'bar', 
+    data: { 
+      labels: tcs.map(t => t.toUpperCase()), 
+      datasets: [{ 
+        label: 'Duration Ratio (Envoy/Direct)', 
+        data: tcs.map(tc => { 
+          const d = mean(byTc[tc].grpc_direct);
+          const e = mean(byTc[tc].grpc_envoy); 
+          return (d != null && e != null && d > 0) ? e / d : null; 
+        }), 
+        backgroundColor: apiColor('grpc_envoy') 
+      }] 
+    }, 
+    options: chartBase() 
+  });
+}
+
+function renderAll() {
+  const rows = getFilteredRows();
+  const hasData = rows.length > 0;
+
+  document.getElementById('stats-section').style.display = hasData ? '' : 'none';
+  document.getElementById('charts-section').style.display = hasData ? '' : 'none';
+  document.getElementById('resource-section').style.display = hasData ? '' : 'none';
+  document.getElementById('reliability-section').style.display = hasData ? '' : 'none';
+  document.getElementById('meta-datasets').textContent = state.datasets.length;
+  document.getElementById('meta-rows').textContent = rows.length.toLocaleString();
+
+  if (!hasData) {
+    ['tc3-section', 'tc7-section', 'tc9-section'].forEach(id => { 
+      document.getElementById(id).style.display = 'none'; 
+    });
+    return;
+  }
+
+  const stats = computeStats(rows);
+  
+  renderStatsTable(stats); 
+  renderDistChart(rows); 
+  renderPctChart(rows); 
+  renderTpsChart(rows); 
+  renderCpuChart(rows); 
+  renderMemChart(rows); 
+  renderEffChart(stats); 
+  renderErrChart(stats); 
+  renderCheckChart(stats);
+
+  const apisInRows = new Set(rows.map(r => r.api));
+  const hasTc3 = apisInRows.has('grpc_part1') || apisInRows.has('rest_part1') || apisInRows.has('graphql_part1');
+  const hasTc7 = [...apisInRows].some(a => a.endsWith('_error'));
+  const hasTc9 = apisInRows.has('grpc_direct') && apisInRows.has('grpc_envoy');
+
+  document.getElementById('tc3-section').style.display = hasTc3 ? '' : 'none';
+  document.getElementById('tc7-section').style.display = hasTc7 ? '' : 'none';
+  document.getElementById('tc9-section').style.display = hasTc9 ? '' : 'none';
+
+  if (hasTc3) {
+    renderTc3Views(rows, stats);
+  }
+  if (hasTc7) {
+    renderTc7Views(rows, stats);
+  }
+  if (hasTc9) {
+    renderTc9Views(rows, stats);
+  }
+}
+
+function naturalCmp(a, b) {
+  const ax = String(a).match(/(\d+|\D+)/g) || [];
+  const bx = String(b).match(/(\d+|\D+)/g) || [];
+  
+  for (let i = 0; i < Math.min(ax.length, bx.length); i++) {
+    const an = parseInt(ax[i]);
+    const bn = parseInt(bx[i]);
+    
+    if (!isNaN(an) && !isNaN(bn)) { 
+      if (an !== bn) return an - bn; 
+    } else if (ax[i] !== bx[i]) { 
+      return ax[i] < bx[i] ? -1 : 1; 
+    }
+  }
+  return ax.length - bx.length;
+}
+
+// ----------------------------------------------------------------------
+// 이벤트 리스너 세팅 및 캡처 로직
+// ----------------------------------------------------------------------
+
+// 1. 차트 타입 변경 (드롭다운 이벤트)
+document.addEventListener('change', (e) => {
+  if (e.target.classList.contains('chart-type-select')) {
+    const chartKey = e.target.dataset.chart;
+    state.chartTypes[chartKey] = e.target.value;
+    renderAll();
+  }
+});
+
+// 2. 단일 차트 캡처 기능
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.btn-cap');
+  if (!btn) {
+    return;
+  }
+  
+  const target = btn.closest('.capture-target');
+  if (!target) {
+    return;
+  }
+  
+  let title = target.querySelector('.chart-title')?.innerText || "Chart";
+  title = title.replace(/[^a-zA-Z0-9_\-\u3131-\uD79D\s]/g, "").trim().replace(/\s+/g, "_");
+
+  // 현재 필터 상태를 파일명에 부착 (예: Chart_VU100_TC1)
+  const vusInfo = [...state.filters.vus].join('_');
+  const tcInfo = [...state.filters.tc].join('_');
+  const filename = `${title}_VUs-${vusInfo}_TC-${tcInfo}.jpg`;
+
+  const bgColor = getComputedStyle(document.body).getPropertyValue('--bg-1').trim() || '#ffffff';
+  
+  try {
+    const canvas = await html2canvas(target, { 
+      scale: 3, 
+      backgroundColor: bgColor, 
+      useCORS: true 
+    });
+    
+    canvas.toBlob((blob) => { 
+      saveAs(blob, filename); 
+    }, "image/jpeg", 1.0);
+    
+  } catch (err) {
+    console.error("Capture failed:", err);
+    alert("캡처 중 오류가 발생했습니다.");
+  }
+});
+
+// 3. 전체 자동 캡처 (ZIP 묶음)
+document.getElementById('btn-capture-all').addEventListener('click', async () => {
+  const vusList = [...state.filters.vus];
+  const tcList = [...state.filters.tc];
+  
+  if (vusList.length === 0 || tcList.length === 0) {
+    alert("캡처할 데이터가 없습니다. 필터를 확인해주세요.");
+    return;
+  }
+
+  const overlay = document.getElementById('capture-overlay');
+  overlay.style.display = 'flex';
+  
+  const zip = new JSZip();
+  
+  // 원본 상태 백업
+  const origVus = new Set(state.filters.vus);
+  const origTc = new Set(state.filters.tc);
+  
+  // 캡처 속도를 위해 차트 애니메이션 임시 비활성화
+  Chart.defaults.animation = false;
+
+  for (const v of vusList) {
+    for (const t of tcList) {
+      // 선택된 VUs / TC에 매칭되는 데이터가 있는지 확인
+      const hasData = state.datasets.some(d => d.vus === v && d.apisByTC[t]);
+      if (!hasData) {
+        continue;
+      }
+
+      // 필터 적용
+      state.filters.vus = new Set([v]);
+      state.filters.tc = new Set([t]);
+      applyTcApiConstraint();
+      renderAll();
+
+      // 화면에 그려질 때까지 대기
+      await new Promise(r => setTimeout(r, 150));
+
+      // 캡처 누락 방지를 위해 아코디언 패널 모두 열기
+      document.querySelectorAll('.accordion').forEach(acc => {
+        acc.classList.remove('collapsed');
+        acc.querySelector('.accordion-head').setAttribute('aria-expanded', 'true');
+      });
+
+      // 현재 화면에 보이고 있는 캡처 대상 요소 찾기
+      const targets = document.querySelectorAll('.panel[style=""] .capture-target, .panel:not([style*="none"]) .capture-target');
+      
+      if (targets.length === 0) {
+        continue;
+      }
+
+      const folderName = `VUs_${v}/TC_${t.toUpperCase()}`;
+      const folder = zip.folder(folderName);
+
+      for (const target of targets) {
+        let title = target.querySelector('.chart-title')?.innerText || "Chart";
+        title = title.replace(/[^a-zA-Z0-9_\-\u3131-\uD79D\s]/g, "").trim().replace(/\s+/g, "_");
+        
+        const bgColor = getComputedStyle(document.body).getPropertyValue('--bg-1').trim() || '#ffffff';
+        const canvas = await html2canvas(target, { 
+          scale: 3, 
+          backgroundColor: bgColor, 
+          useCORS: true 
+        });
+        
+        // base64 문자열 추출 후 압축 파일에 추가
+        const imgData = canvas.toDataURL("image/jpeg", 1.0).split(',')[1];
+        folder.file(`${title}.jpg`, imgData, {base64: true});
+      }
+    }
+  }
+
+  // 작업 후 원본 상태 및 애니메이션 복구
+  Chart.defaults.animation = true;
+  state.filters.vus = origVus;
+  state.filters.tc = origTc;
+  
+  applyTcApiConstraint();
+  renderAll();
+  
+  overlay.style.display = 'none';
+
+  // ZIP 파일 생성 및 다운로드
+  try {
+    const content = await zip.generateAsync({type: "blob"});
+    saveAs(content, "k6_benchmark_charts_bundle.zip");
+  } catch (err) {
+    console.error("ZIP 생성 오류:", err);
+    alert("ZIP 파일 생성에 실패했습니다.");
+  }
+});
+
+document.querySelectorAll('.accordion-head').forEach(head => {
+  head.addEventListener('click', () => {
+    const panel = head.closest('.accordion'); 
+    if (!panel) {
+      return;
+    }
+    
+    panel.classList.toggle('collapsed');
+    head.setAttribute('aria-expanded', !panel.classList.contains('collapsed'));
+  });
+});
+
+document.getElementById('theme-toggle').onclick = () => {
+  document.body.classList.toggle('theme-dark');
+  const btn = document.getElementById('theme-toggle');
+  
+  btn.textContent = document.body.classList.contains('theme-dark') ? '라이트 모드 전환' : '다크 모드 전환';
+  renderAll();
+};
+
+function init() {
+  const grid = document.getElementById('upload-grid');
+  const addCard = document.createElement('div');
+  
+  addCard.className = 'upload-card add-new'; 
+  addCard.innerHTML = '+'; 
+  addCard.onclick = createUploadCard;
+  
+  grid.appendChild(addCard);
+  createUploadCard();
+}
+
+init();
 </script>
 </body>
 </html>
