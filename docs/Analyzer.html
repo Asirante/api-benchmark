@@ -1058,7 +1058,7 @@ const state = {
     api: new Set() 
   },
   chartTypes: { 
-    dist: 'bar', // 'box' 에서 'bar' 로 기본값 변경됨
+    dist: 'bar', // 기본값: 막대 그래프
     pct: 'line', 
     tps: 'line', 
     cpu: 'line', 
@@ -1517,17 +1517,17 @@ function computeStats(rows) {
       api: api, 
       n: clean(durs).length,
       duration_mean: mean(durs), 
-    duration_p50: percentile(durs, 0.50), 
-    duration_p95: percentile(durs, 0.95), 
-    duration_p99: percentile(durs, 0.99), 
-    duration_max: max_(durs),
-    cpu_mean: mean(cpuVals), 
-    mem_mean: mean(memVals), 
-    tps: tps,
-    cpu_per_req: (mean(cpuVals) != null && tps > 0) ? mean(cpuVals) / tps : null,
-    mem_per_req: (mean(memVals) != null && tps > 0) ? mean(memVals) / tps : null,
-    check_pass: (() => { 
-      const c = clean(checks); 
+      duration_p50: percentile(durs, 0.50), 
+      duration_p95: percentile(durs, 0.95), 
+      duration_p99: percentile(durs, 0.99), 
+      duration_max: max_(durs),
+      cpu_mean: mean(cpuVals), 
+      mem_mean: mean(memVals), 
+      tps: tps,
+      cpu_per_req: (mean(cpuVals) != null && tps > 0) ? mean(cpuVals) / tps : null,
+      mem_per_req: (mean(memVals) != null && tps > 0) ? mean(memVals) / tps : null,
+      check_pass: (() => { 
+        const c = clean(checks); 
         return c.length ? c.reduce((s,v) => s + v, 0) / c.length : null; 
       })(),
       err_rate: (() => { 
@@ -1709,6 +1709,10 @@ function groupLabel(vus, tc, api) {
   return `${tc.toUpperCase()} · ${api} · ${vus}vu`; 
 }
 
+// ----------------------------------------------------------------------
+// 아래부터 차트 렌더링 함수들 (이전 응답에서 누락되었던 부분 전체 복원)
+// ----------------------------------------------------------------------
+
 function renderDistChart(rows) {
   const key = 'dist'; 
   destroyChart(key); 
@@ -1783,6 +1787,313 @@ function renderDistChart(rows) {
           tension: 0.4, 
           spanGaps: true,
           fill: false 
+        }] 
+      }, 
+      options: chartBase() 
+    });
+  }
+}
+
+function renderPctChart(rows) {
+  const key = 'pct'; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const labels = ['p50', 'p95', 'p99'];
+  const datasets = [];
+  const type = state.chartTypes[key];
+  const isLineBase = type === 'line' || type === 'points';
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const durs = rs.map(r => r.duration);
+    const values = [percentile(durs, 0.5), percentile(durs, 0.95), percentile(durs, 0.99)];
+    
+    if (values.every(v => v == null)) continue;
+    
+    const color = apiColor(api);
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: values, 
+      borderColor: color, 
+      backgroundColor: isLineBase ? color + '22' : color, 
+      borderWidth: 2, 
+      fill: false, 
+      tension: 0.4,
+      spanGaps: true,
+      type: isLineBase ? 'line' : 'bar',
+      showLine: type !== 'points', 
+      pointRadius: type === 'points' ? 6 : 3
+    });
+  }
+  
+  const ctx = document.getElementById('chart-pct').getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'bar', // Base type (mixed chart)
+    data: { 
+      labels: labels, 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        ...chartBase().scales, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Duration (ms)', 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderTpsChart(rows) {
+  const key = 'tps'; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const datasets = [];
+  const type = state.chartTypes[key];
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
+    
+    if (!withTime.length) continue;
+    
+    const t0 = withTime[0].time;
+    const bucket = new Map();
+    
+    for (const r of withTime) { 
+      const sec = Math.floor((r.time - t0) / 1000); 
+      bucket.set(sec, (bucket.get(sec) || 0) + 1); 
+    }
+    
+    const pts = [...bucket.entries()].sort((a,b) => a[0] - b[0]).map(([t, n]) => ({ x: t, y: n }));
+    const color = apiColor(api);
+    
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: pts, 
+      borderColor: color, 
+      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
+      borderWidth: type === 'bar' ? 0 : 2, 
+      fill: type === 'area', 
+      tension: 0.4,
+      cubicInterpolationMode: 'monotone', // 과도한 꺾임 방지
+      spanGaps: true,                     // 빈 데이터 연결
+      pointRadius: 0,
+      type: type === 'bar' ? 'bar' : 'line'
+    });
+  }
+  
+  const ctx = document.getElementById('chart-tps').getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'line', 
+    data: { 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: { 
+          type: 'linear', 
+          ticks: chartBase().scales.x.ticks, 
+          grid: chartBase().scales.x.grid, 
+          title: { 
+            display: true, 
+            text: 'Elapsed (s)', 
+            color: chartBase().scales.x.ticks.color 
+          } 
+        }, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: 'Req / s', 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderCpuChart(rows) { 
+  return renderResourceTimeseries('cpu', 'chart-cpu', rows, 'CPU %'); 
+}
+
+function renderMemChart(rows) { 
+  return renderResourceTimeseries('mem', 'chart-mem', rows, 'Memory (MB)'); 
+}
+
+function renderResourceTimeseries(field, canvasId, rows, axisLabel) {
+  const key = field; 
+  destroyChart(key); 
+  
+  if (!rows.length) return;
+  
+  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
+  const sorted = [...groups.entries()].sort((a,b) => {
+    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
+           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
+           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
+  });
+  
+  const datasets = [];
+  const type = state.chartTypes[key];
+
+  for (const [k, rs] of sorted) {
+    const [vus, tc, api] = k.split('|'); 
+    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
+    
+    if (!withTime.length) continue;
+    
+    const containers = apiToContainers(api);
+    const t0 = withTime[0].time;
+    const pts = [];
+    
+    for (const r of withTime) {
+      const vs = containers.map(c => r[field][c]).filter(v => v != null);
+      if (vs.length) {
+        pts.push({ x: (r.time - t0) / 1000, y: vs.reduce((s,v) => s + v, 0) });
+      }
+    }
+    
+    if (!pts.length) continue;
+    
+    const color = apiColor(api);
+    datasets.push({ 
+      label: groupLabel(vus, tc, api), 
+      data: pts, 
+      borderColor: color, 
+      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
+      borderWidth: type === 'bar' ? 0 : 2, 
+      fill: type === 'area', 
+      tension: 0.4,
+      cubicInterpolationMode: 'monotone',
+      spanGaps: true,
+      pointRadius: 0,
+      type: type === 'bar' ? 'bar' : 'line'
+    });
+  }
+  
+  const ctx = document.getElementById(canvasId).getContext('2d');
+  state.charts[key] = new Chart(ctx, { 
+    type: 'line', 
+    data: { 
+      datasets: datasets 
+    }, 
+    options: { 
+      ...chartBase(), 
+      scales: { 
+        x: { 
+          type: 'linear', 
+          ticks: chartBase().scales.x.ticks, 
+          grid: chartBase().scales.x.grid, 
+          title: { 
+            display: true, 
+            text: 'Elapsed (s)', 
+            color: chartBase().scales.x.ticks.color 
+          } 
+        }, 
+        y: { 
+          ...chartBase().scales.y, 
+          title: { 
+            display: true, 
+            text: axisLabel, 
+            color: chartBase().scales.y.ticks.color 
+          } 
+        } 
+      } 
+    } 
+  });
+}
+
+function renderEffChart(stats) {
+  const key = 'eff'; 
+  destroyChart(key); 
+  
+  if (!stats.length) return;
+  
+  const sorted = [...stats].sort((a,b) => {
+    return naturalCmp(a.tc, b.tc) || 
+           a.api.localeCompare(b.api) || 
+           a.vus - b.vus;
+  });
+  
+  const ctx = document.getElementById('chart-eff').getContext('2d');
+  const type = state.chartTypes[key];
+
+  if (type === 'scatter') {
+    const datasets = sorted.map(s => ({ 
+      label: groupLabel(s.vus, s.tc, s.api), 
+      data: [{ x: s.tps || 0, y: s.cpu_mean || 0 }], 
+      backgroundColor: apiColor(s.api), 
+      borderColor: apiColor(s.api), 
+      pointRadius: 6 
+    }));
+    
+    state.charts[key] = new Chart(ctx, { 
+      type: 'scatter', 
+      data: { 
+        datasets: datasets 
+      }, 
+      options: { 
+        ...chartBase(), 
+        scales: { 
+          x: { 
+            ...chartBase().scales.x, 
+            title: { 
+              display: true, 
+              text: 'TPS (req/s)', 
+              color: chartBase().scales.x.ticks.color 
+            } 
+          }, 
+          y: { 
+            ...chartBase().scales.y, 
+            title: { 
+              display: true, 
+              text: 'Mean CPU %', 
+              color: chartBase().scales.y.ticks.color 
+            } 
+          } 
+        } 
+      } 
+    });
+  } else {
+    state.charts[key] = new Chart(ctx, { 
+      type: type === 'line' ? 'line' : 'bar', 
+      data: { 
+        labels: sorted.map(s => groupLabel(s.vus, s.tc, s.api)), 
+        datasets: [{ 
+          label: 'CPU % per req/s', 
+          data: sorted.map(s => s.cpu_per_req), 
+          backgroundColor: type === 'line' ? sorted.map(s => apiColor(s.api)+'33') : sorted.map(s => apiColor(s.api)), 
+          borderColor: sorted.map(s => apiColor(s.api)), 
+          borderWidth: type === 'line' ? 2 : 0, 
+          tension: 0.4,
+          spanGaps: true
         }] 
       }, 
       options: chartBase() 
@@ -2161,6 +2472,7 @@ function renderAll() {
 
   const stats = computeStats(rows);
   
+  // 모든 차트 렌더링 호출
   renderStatsTable(stats); 
   renderDistChart(rows); 
   renderPctChart(rows); 
@@ -2190,23 +2502,6 @@ function renderAll() {
   if (hasTc9) {
     renderTc9Views(rows, stats);
   }
-}
-
-function naturalCmp(a, b) {
-  const ax = String(a).match(/(\d+|\D+)/g) || [];
-  const bx = String(b).match(/(\d+|\D+)/g) || [];
-  
-  for (let i = 0; i < Math.min(ax.length, bx.length); i++) {
-    const an = parseInt(ax[i]);
-    const bn = parseInt(bx[i]);
-    
-    if (!isNaN(an) && !isNaN(bn)) { 
-      if (an !== bn) return an - bn; 
-    } else if (ax[i] !== bx[i]) { 
-      return ax[i] < bx[i] ? -1 : 1; 
-    }
-  }
-  return ax.length - bx.length;
 }
 
 // ----------------------------------------------------------------------
@@ -2248,7 +2543,8 @@ document.addEventListener('click', async (e) => {
     const canvas = await html2canvas(target, { 
       scale: 3, 
       backgroundColor: bgColor, 
-      useCORS: true 
+      useCORS: true,
+      allowTaint: true // 로컬 환경 접근을 위한 옵션
     });
     
     canvas.toBlob((blob) => { 
@@ -2257,7 +2553,7 @@ document.addEventListener('click', async (e) => {
     
   } catch (err) {
     console.error("Capture failed:", err);
-    alert("캡처 중 오류가 발생했습니다.");
+    alert("캡처 중 오류가 발생했습니다.\n로컬 환경(file://) 보안 정책 문제일 수 있습니다.\nLive Server 등 로컬 웹 서버를 이용해 실행해주세요.");
   }
 });
 
@@ -2283,66 +2579,72 @@ document.getElementById('btn-capture-all').addEventListener('click', async () =>
   // 캡처 속도를 위해 차트 애니메이션 임시 비활성화
   Chart.defaults.animation = false;
 
-  for (const v of vusList) {
-    for (const t of tcList) {
-      // 선택된 VUs / TC에 매칭되는 데이터가 있는지 확인
-      const hasData = state.datasets.some(d => d.vus === v && d.apisByTC[t]);
-      if (!hasData) {
-        continue;
-      }
+  try {
+    for (const v of vusList) {
+      for (const t of tcList) {
+        // 선택된 VUs / TC에 매칭되는 데이터가 있는지 확인
+        const hasData = state.datasets.some(d => d.vus === v && d.apisByTC[t]);
+        if (!hasData) {
+          continue;
+        }
 
-      // 필터 적용
-      state.filters.vus = new Set([v]);
-      state.filters.tc = new Set([t]);
-      applyTcApiConstraint();
-      renderAll();
+        // 필터 적용
+        state.filters.vus = new Set([v]);
+        state.filters.tc = new Set([t]);
+        applyTcApiConstraint();
+        renderAll();
 
-      // 화면에 그려질 때까지 대기
-      await new Promise(r => setTimeout(r, 150));
+        // 화면에 그려질 때까지 대기
+        await new Promise(r => setTimeout(r, 150));
 
-      // 캡처 누락 방지를 위해 아코디언 패널 모두 열기
-      document.querySelectorAll('.accordion').forEach(acc => {
-        acc.classList.remove('collapsed');
-        acc.querySelector('.accordion-head').setAttribute('aria-expanded', 'true');
-      });
-
-      // 현재 화면에 보이고 있는 캡처 대상 요소 찾기
-      const targets = document.querySelectorAll('.panel[style=""] .capture-target, .panel:not([style*="none"]) .capture-target');
-      
-      if (targets.length === 0) {
-        continue;
-      }
-
-      const folderName = `VUs_${v}/TC_${t.toUpperCase()}`;
-      const folder = zip.folder(folderName);
-
-      for (const target of targets) {
-        let title = target.querySelector('.chart-title')?.innerText || "Chart";
-        title = title.replace(/[^a-zA-Z0-9_\-\u3131-\uD79D\s]/g, "").trim().replace(/\s+/g, "_");
-        
-        const bgColor = getComputedStyle(document.body).getPropertyValue('--bg-1').trim() || '#ffffff';
-        const canvas = await html2canvas(target, { 
-          scale: 3, 
-          backgroundColor: bgColor, 
-          useCORS: true 
+        // 캡처 누락 방지를 위해 아코디언 패널 모두 열기
+        document.querySelectorAll('.accordion').forEach(acc => {
+          acc.classList.remove('collapsed');
+          acc.querySelector('.accordion-head').setAttribute('aria-expanded', 'true');
         });
+
+        // 현재 화면에 보이고 있는 캡처 대상 요소 찾기
+        const targets = document.querySelectorAll('.panel[style=""] .capture-target, .panel:not([style*="none"]) .capture-target');
         
-        // base64 문자열 추출 후 압축 파일에 추가
-        const imgData = canvas.toDataURL("image/jpeg", 1.0).split(',')[1];
-        folder.file(`${title}.jpg`, imgData, {base64: true});
+        if (targets.length === 0) {
+          continue;
+        }
+
+        const folderName = `VUs_${v}/TC_${t.toUpperCase()}`;
+        const folder = zip.folder(folderName);
+
+        for (const target of targets) {
+          let title = target.querySelector('.chart-title')?.innerText || "Chart";
+          title = title.replace(/[^a-zA-Z0-9_\-\u3131-\uD79D\s]/g, "").trim().replace(/\s+/g, "_");
+          
+          const bgColor = getComputedStyle(document.body).getPropertyValue('--bg-1').trim() || '#ffffff';
+          const canvas = await html2canvas(target, { 
+            scale: 3, 
+            backgroundColor: bgColor, 
+            useCORS: true,
+            allowTaint: true // 로컬 환경 접근을 위한 옵션
+          });
+          
+          // base64 문자열 추출 후 압축 파일에 추가
+          const imgData = canvas.toDataURL("image/jpeg", 1.0).split(',')[1];
+          folder.file(`${title}.jpg`, imgData, {base64: true});
+        }
       }
     }
+  } catch (err) {
+    console.error("Capture process error:", err);
+    alert("캡처 처리 중 오류가 발생했습니다.\n로컬 보안 정책 문제일 경우 Live Server를 이용해주세요.");
+  } finally {
+    // 작업 후 원본 상태 및 애니메이션 복구
+    Chart.defaults.animation = true;
+    state.filters.vus = origVus;
+    state.filters.tc = origTc;
+    
+    applyTcApiConstraint();
+    renderAll();
+    
+    overlay.style.display = 'none';
   }
-
-  // 작업 후 원본 상태 및 애니메이션 복구
-  Chart.defaults.animation = true;
-  state.filters.vus = origVus;
-  state.filters.tc = origTc;
-  
-  applyTcApiConstraint();
-  renderAll();
-  
-  overlay.style.display = 'none';
 
   // ZIP 파일 생성 및 다운로드
   try {
@@ -2350,7 +2652,9 @@ document.getElementById('btn-capture-all').addEventListener('click', async () =>
     saveAs(content, "k6_benchmark_charts_bundle.zip");
   } catch (err) {
     console.error("ZIP 생성 오류:", err);
-    alert("ZIP 파일 생성에 실패했습니다.");
+    if (!err.message.includes("FileSaver")) {
+      alert("ZIP 파일 생성에 실패했습니다.");
+    }
   }
 });
 
