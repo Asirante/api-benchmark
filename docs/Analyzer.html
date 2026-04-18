@@ -758,12 +758,12 @@ table.stats td .arch-dot {
         <div class="chart-header">
           <div>
             <div class="chart-title">Duration Distribution</div>
-            <div class="chart-sub">박스플롯 기반의 전체 응답 분포 비교</div>
+            <div class="chart-sub">응답 분포 비교 (Bar/Boxplot)</div>
           </div>
           <div class="chart-controls" data-html2canvas-ignore="true">
             <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
             <select class="chart-type-select" data-chart="dist">
-              <option value="bar">BAR (평균)</option>
+              <option value="bar" selected>BAR (평균)</option>
               <option value="box">BOXPLOT (분포)</option>
               <option value="line">LINE (추이)</option>
             </select>
@@ -834,6 +834,7 @@ table.stats td .arch-dot {
             <select class="chart-type-select" data-chart="cpu">
               <option value="line">LINE</option>
               <option value="area">AREA</option>
+              <option value="bar">BAR</option>
             </select>
           </div>
         </div>
@@ -851,6 +852,7 @@ table.stats td .arch-dot {
             <select class="chart-type-select" data-chart="mem">
               <option value="line">LINE</option>
               <option value="area">AREA</option>
+              <option value="bar">BAR</option>
             </select>
           </div>
         </div>
@@ -858,23 +860,45 @@ table.stats td .arch-dot {
       </div>
     </div>
 
-    <!-- Chart: eff -->
-    <div class="capture-target" style="margin-top: 24px;">
-      <div class="chart-header">
-        <div>
-          <div class="chart-title">CPU Cost per Request</div>
-          <div class="chart-sub">평균 CPU % ÷ 평균 TPS (낮을수록 고효율)</div>
+    <!-- Chart: eff & eff_mem -->
+    <div class="chart-grid-2" style="margin-top: 24px;">
+      <!-- Chart: eff (CPU Cost) -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">CPU Cost per Request</div>
+            <div class="chart-sub">평균 CPU % ÷ 평균 TPS (낮을수록 고효율)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="eff">
+              <option value="bar">BAR</option>
+              <option value="scatter">SCATTER (분산)</option>
+              <option value="line">LINE</option>
+            </select>
+          </div>
         </div>
-        <div class="chart-controls" data-html2canvas-ignore="true">
-          <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
-          <select class="chart-type-select" data-chart="eff">
-            <option value="bar">BAR</option>
-            <option value="scatter">SCATTER (분산)</option>
-            <option value="line">LINE</option>
-          </select>
-        </div>
+        <div class="chart-wrap"><canvas id="chart-eff"></canvas></div>
       </div>
-      <div class="chart-wrap"><canvas id="chart-eff"></canvas></div>
+
+      <!-- Chart: eff_mem (Memory Cost) -->
+      <div class="capture-target">
+        <div class="chart-header">
+          <div>
+            <div class="chart-title">Memory Cost per Request</div>
+            <div class="chart-sub">평균 Mem (MB) ÷ 평균 TPS (낮을수록 고효율)</div>
+          </div>
+          <div class="chart-controls" data-html2canvas-ignore="true">
+            <button class="btn-cap" title="현재 차트 캡처">📸 캡처</button>
+            <select class="chart-type-select" data-chart="eff_mem">
+              <option value="bar">BAR</option>
+              <option value="scatter">SCATTER (분산)</option>
+              <option value="line">LINE</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart-wrap"><canvas id="chart-eff-mem"></canvas></div>
+      </div>
     </div>
   </div>
 </section>
@@ -1034,12 +1058,13 @@ const state = {
     api: new Set() 
   },
   chartTypes: { 
-    dist: 'box', 
+    dist: 'bar', // 'box' 에서 'bar' 로 기본값 변경됨
     pct: 'line', 
     tps: 'line', 
     cpu: 'line', 
     mem: 'line', 
     eff: 'bar', 
+    eff_mem: 'bar', 
     err: 'bar' 
   },
   sortBy: { 
@@ -1492,16 +1517,17 @@ function computeStats(rows) {
       api: api, 
       n: clean(durs).length,
       duration_mean: mean(durs), 
-      duration_p50: percentile(durs, 0.50), 
-      duration_p95: percentile(durs, 0.95), 
-      duration_p99: percentile(durs, 0.99), 
-      duration_max: max_(durs),
-      cpu_mean: mean(cpuVals), 
-      mem_mean: mean(memVals), 
-      tps: tps,
-      cpu_per_req: (mean(cpuVals) != null && tps > 0) ? mean(cpuVals) / tps : null,
-      check_pass: (() => { 
-        const c = clean(checks); 
+    duration_p50: percentile(durs, 0.50), 
+    duration_p95: percentile(durs, 0.95), 
+    duration_p99: percentile(durs, 0.99), 
+    duration_max: max_(durs),
+    cpu_mean: mean(cpuVals), 
+    mem_mean: mean(memVals), 
+    tps: tps,
+    cpu_per_req: (mean(cpuVals) != null && tps > 0) ? mean(cpuVals) / tps : null,
+    mem_per_req: (mean(memVals) != null && tps > 0) ? mean(memVals) / tps : null,
+    check_pass: (() => { 
+      const c = clean(checks); 
         return c.length ? c.reduce((s,v) => s + v, 0) / c.length : null; 
       })(),
       err_rate: (() => { 
@@ -1547,6 +1573,7 @@ const STATS_COLUMNS = [
   { key: 'cpu_mean', label: 'CPU %', fmt: v => v == null ? '—' : v.toFixed(2) },
   { key: 'mem_mean', label: 'Mem MB', fmt: v => v == null ? '—' : v.toFixed(1) },
   { key: 'cpu_per_req', label: 'CPU/Req', fmt: v => v == null ? '—' : v.toFixed(3) },
+  { key: 'mem_per_req', label: 'Mem/Req', fmt: v => v == null ? '—' : v.toFixed(3) },
   { key: 'check_pass', label: 'Check OK', fmt: v => v == null ? '—' : (v*100).toFixed(1) + '%' }
 ];
 
@@ -1753,7 +1780,8 @@ function renderDistChart(rows) {
           backgroundColor: type === 'line' ? colors.map(c=>c+'33') : colors, 
           borderColor: colors, 
           borderWidth: type === 'line' ? 2 : 0, 
-          tension: 0.2, 
+          tension: 0.4, 
+          spanGaps: true,
           fill: false 
         }] 
       }, 
@@ -1762,239 +1790,8 @@ function renderDistChart(rows) {
   }
 }
 
-function renderPctChart(rows) {
-  const key = 'pct'; 
-  destroyChart(key); 
-  
-  if (!rows.length) return;
-  
-  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
-  const sorted = [...groups.entries()].sort((a,b) => {
-    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
-           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
-           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
-  });
-  
-  const labels = ['p50', 'p95', 'p99'];
-  const datasets = [];
-  const type = state.chartTypes[key];
-  const isLineBase = type === 'line' || type === 'points';
-
-  for (const [k, rs] of sorted) {
-    const [vus, tc, api] = k.split('|'); 
-    const durs = rs.map(r => r.duration);
-    const values = [percentile(durs, 0.5), percentile(durs, 0.95), percentile(durs, 0.99)];
-    
-    if (values.every(v => v == null)) continue;
-    
-    const color = apiColor(api);
-    datasets.push({ 
-      label: groupLabel(vus, tc, api), 
-      data: values, 
-      borderColor: color, 
-      backgroundColor: isLineBase ? color + '22' : color, 
-      borderWidth: 2, 
-      fill: false, 
-      tension: 0.3,
-      type: isLineBase ? 'line' : 'bar',
-      showLine: type !== 'points', 
-      pointRadius: type === 'points' ? 6 : 3
-    });
-  }
-  
-  const ctx = document.getElementById('chart-pct').getContext('2d');
-  state.charts[key] = new Chart(ctx, { 
-    type: 'bar', // Base type (mixed chart)
-    data: { 
-      labels: labels, 
-      datasets: datasets 
-    }, 
-    options: { 
-      ...chartBase(), 
-      scales: { 
-        ...chartBase().scales, 
-        y: { 
-          ...chartBase().scales.y, 
-          title: { 
-            display: true, 
-            text: 'Duration (ms)', 
-            color: chartBase().scales.y.ticks.color 
-          } 
-        } 
-      } 
-    } 
-  });
-}
-
-function renderTpsChart(rows) {
-  const key = 'tps'; 
-  destroyChart(key); 
-  
-  if (!rows.length) return;
-  
-  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
-  const sorted = [...groups.entries()].sort((a,b) => {
-    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
-           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
-           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
-  });
-  
-  const datasets = [];
-  const type = state.chartTypes[key];
-
-  for (const [k, rs] of sorted) {
-    const [vus, tc, api] = k.split('|'); 
-    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
-    
-    if (!withTime.length) continue;
-    
-    const t0 = withTime[0].time;
-    const bucket = new Map();
-    
-    for (const r of withTime) { 
-      const sec = Math.floor((r.time - t0) / 1000); 
-      bucket.set(sec, (bucket.get(sec) || 0) + 1); 
-    }
-    
-    const pts = [...bucket.entries()].sort((a,b) => a[0] - b[0]).map(([t, n]) => ({ x: t, y: n }));
-    const color = apiColor(api);
-    
-    datasets.push({ 
-      label: groupLabel(vus, tc, api), 
-      data: pts, 
-      borderColor: color, 
-      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
-      borderWidth: type === 'bar' ? 0 : 2, 
-      fill: type === 'area', 
-      tension: 0.3, 
-      pointRadius: 0,
-      type: type === 'bar' ? 'bar' : 'line'
-    });
-  }
-  
-  const ctx = document.getElementById('chart-tps').getContext('2d');
-  state.charts[key] = new Chart(ctx, { 
-    type: 'line', 
-    data: { 
-      datasets: datasets 
-    }, 
-    options: { 
-      ...chartBase(), 
-      scales: { 
-        x: { 
-          type: 'linear', 
-          ticks: chartBase().scales.x.ticks, 
-          grid: chartBase().scales.x.grid, 
-          title: { 
-            display: true, 
-            text: 'Elapsed (s)', 
-            color: chartBase().scales.x.ticks.color 
-          } 
-        }, 
-        y: { 
-          ...chartBase().scales.y, 
-          title: { 
-            display: true, 
-            text: 'Req / s', 
-            color: chartBase().scales.y.ticks.color 
-          } 
-        } 
-      } 
-    } 
-  });
-}
-
-function renderCpuChart(rows) { 
-  return renderResourceTimeseries('cpu', 'chart-cpu', rows, 'CPU %'); 
-}
-
-function renderMemChart(rows) { 
-  return renderResourceTimeseries('mem', 'chart-mem', rows, 'Memory (MB)'); 
-}
-
-function renderResourceTimeseries(field, canvasId, rows, axisLabel) {
-  const key = field; 
-  destroyChart(key); 
-  
-  if (!rows.length) return;
-  
-  const groups = groupBy(rows, r => `${r._vus}|${r.tc}|${r.api}`);
-  const sorted = [...groups.entries()].sort((a,b) => {
-    return naturalCmp(a[0].split('|')[1], b[0].split('|')[1]) || 
-           a[0].split('|')[2].localeCompare(b[0].split('|')[2]) || 
-           parseFloat(a[0].split('|')[0]) - parseFloat(b[0].split('|')[0]);
-  });
-  
-  const datasets = [];
-  const type = state.chartTypes[key];
-
-  for (const [k, rs] of sorted) {
-    const [vus, tc, api] = k.split('|'); 
-    const withTime = rs.filter(r => r.time).sort((a,b) => a.time - b.time);
-    
-    if (!withTime.length) continue;
-    
-    const containers = apiToContainers(api);
-    const t0 = withTime[0].time;
-    const pts = [];
-    
-    for (const r of withTime) {
-      const vs = containers.map(c => r[field][c]).filter(v => v != null);
-      if (vs.length) {
-        pts.push({ x: (r.time - t0) / 1000, y: vs.reduce((s,v) => s + v, 0) });
-      }
-    }
-    
-    if (!pts.length) continue;
-    
-    const color = apiColor(api);
-    datasets.push({ 
-      label: groupLabel(vus, tc, api), 
-      data: pts, 
-      borderColor: color, 
-      backgroundColor: type === 'bar' ? color : color + (type === 'area' ? '44' : '22'), 
-      borderWidth: type === 'bar' ? 0 : 2, 
-      fill: type === 'area', 
-      tension: 0.25, 
-      pointRadius: 0,
-      type: type === 'bar' ? 'bar' : 'line'
-    });
-  }
-  
-  const ctx = document.getElementById(canvasId).getContext('2d');
-  state.charts[key] = new Chart(ctx, { 
-    type: 'line', 
-    data: { 
-      datasets: datasets 
-    }, 
-    options: { 
-      ...chartBase(), 
-      scales: { 
-        x: { 
-          type: 'linear', 
-          ticks: chartBase().scales.x.ticks, 
-          grid: chartBase().scales.x.grid, 
-          title: { 
-            display: true, 
-            text: 'Elapsed (s)', 
-            color: chartBase().scales.x.ticks.color 
-          } 
-        }, 
-        y: { 
-          ...chartBase().scales.y, 
-          title: { 
-            display: true, 
-            text: axisLabel, 
-            color: chartBase().scales.y.ticks.color 
-          } 
-        } 
-      } 
-    } 
-  });
-}
-
-function renderEffChart(stats) {
-  const key = 'eff'; 
+function renderEffMemChart(stats) {
+  const key = 'eff_mem'; 
   destroyChart(key); 
   
   if (!stats.length) return;
@@ -2005,13 +1802,13 @@ function renderEffChart(stats) {
            a.vus - b.vus;
   });
   
-  const ctx = document.getElementById('chart-eff').getContext('2d');
+  const ctx = document.getElementById('chart-eff-mem').getContext('2d');
   const type = state.chartTypes[key];
 
   if (type === 'scatter') {
     const datasets = sorted.map(s => ({ 
       label: groupLabel(s.vus, s.tc, s.api), 
-      data: [{ x: s.tps || 0, y: s.cpu_mean || 0 }], 
+      data: [{ x: s.tps || 0, y: s.mem_mean || 0 }], 
       backgroundColor: apiColor(s.api), 
       borderColor: apiColor(s.api), 
       pointRadius: 6 
@@ -2037,7 +1834,7 @@ function renderEffChart(stats) {
             ...chartBase().scales.y, 
             title: { 
               display: true, 
-              text: 'Mean CPU %', 
+              text: 'Mean Mem (MB)', 
               color: chartBase().scales.y.ticks.color 
             } 
           } 
@@ -2050,12 +1847,13 @@ function renderEffChart(stats) {
       data: { 
         labels: sorted.map(s => groupLabel(s.vus, s.tc, s.api)), 
         datasets: [{ 
-          label: 'CPU % per req/s', 
-          data: sorted.map(s => s.cpu_per_req), 
+          label: 'Mem (MB) per req/s', 
+          data: sorted.map(s => s.mem_per_req), 
           backgroundColor: type === 'line' ? sorted.map(s => apiColor(s.api)+'33') : sorted.map(s => apiColor(s.api)), 
           borderColor: sorted.map(s => apiColor(s.api)), 
           borderWidth: type === 'line' ? 2 : 0, 
-          tension: 0.2
+          tension: 0.4,
+          spanGaps: true
         }] 
       }, 
       options: chartBase() 
@@ -2091,7 +1889,8 @@ function renderErrChart(stats) {
         borderColor: isLine ? warnColor : sorted.map(s => apiColor(s.api)), 
         borderWidth: isLine ? 2 : 0, 
         fill: false, 
-        tension: 0.2,
+        tension: 0.4,
+        spanGaps: true,
         showLine: type !== 'points', 
         pointRadius: type === 'points' ? 6 : 3
       }] 
@@ -2245,7 +2044,8 @@ function renderTc7Views(rows, stats) {
         data: [percentile(byApi[api], 0.5), percentile(byApi[api], 0.95), percentile(byApi[api], 0.99)], 
         borderColor: apiColor(api), 
         backgroundColor: apiColor(api), 
-        tension: 0.2 
+        tension: 0.4,
+        spanGaps: true
       })) 
     }, 
     options: chartBase() 
@@ -2368,6 +2168,7 @@ function renderAll() {
   renderCpuChart(rows); 
   renderMemChart(rows); 
   renderEffChart(stats); 
+  renderEffMemChart(stats);
   renderErrChart(stats); 
   renderCheckChart(stats);
 
