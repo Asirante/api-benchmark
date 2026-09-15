@@ -1,0 +1,15 @@
+# 빌드에 필요 없는 실험 결과·데이터·로그를 Docker 빌드 컨텍스트에서 제외
+# (Dockerfile 의 COPY . . 가 저장소 전체를 보내므로, 없으면 csv_results 수십 GB 가 매 빌드마다 전송됨)
+# 최종 이미지는 빌드된 바이너리와 .env 만 복사하므로 결과물에는 영향 없음
+.git
+csv_results
+data
+resource_logs
+influxdb_backups
+olds
+docs
+*.log
+__pycache__
+/rest
+/graphql
+/grpc
