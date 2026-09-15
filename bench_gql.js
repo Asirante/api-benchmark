@@ -70,7 +70,11 @@ export default function () {
   });
 
   group('TC3: Under-fetching', function () {
-    const payload = JSON.stringify({ query: `query { getOrderDetails(id: "${validId}") { order_id items { product_id } } }` });
+    // [실험 E] GQL_TC3_LIGHT=1: 요청 1회는 유지하고 DB 작업만 REST·gRPC TC3(단순 조회 1회 + 아이템 1회)와 같게 맞춤
+    const tc3Query = __ENV.GQL_TC3_LIGHT === '1'
+      ? `query { getSimpleOrder(id: "${validId}") { order_id } getOrderItems(id: "${validId}") { product_id } }`
+      : `query { getOrderDetails(id: "${validId}") { order_id items { product_id } } }`;
+    const payload = JSON.stringify({ query: tc3Query });
     const res = http.post('http://benchmark_graphql:8081/query', payload, { headers: gqlHeaders, tags: { tc: 'tc3', api: 'graphql' } });
     check(res, { 'TC3 GQL OK': (r) => r.status === 200 && r.json().errors === undefined });
   });

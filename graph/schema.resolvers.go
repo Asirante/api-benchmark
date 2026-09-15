@@ -108,6 +108,28 @@ func (r *queryResolver) GetOrderDetails(ctx context.Context, id string) (*model.
 	}, nil
 }
 
+// =======================================================
+// [실험 E] TC3 쿼리 수 보정: 아이템만 조회
+// REST GetOrderItems, gRPC GetItemsByOrderID 와 같은 저장소 메서드·매핑 (Product 미조회)
+// =======================================================
+func (r *queryResolver) GetOrderItems(ctx context.Context, id string) ([]*model.OrderItem, error) {
+	items, err := r.Repo.GetItemsByOrderID(id)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch order items")
+	}
+
+	result := make([]*model.OrderItem, len(items))
+	for i, item := range items {
+		result[i] = &model.OrderItem{
+			ProductID:   item.ProductID,
+			Price:       item.Price,
+			ProductName: item.Product.ProductCategoryName,
+		}
+	}
+
+	return result, nil
+}
+
 // Query, Mutation 리졸버 인터페이스 반환 함수들 (기존에 생성된 것 유지)
 func (r *Resolver) Mutation() MutationResolver { return &mutationResolver{r} }
 func (r *Resolver) Query() QueryResolver       { return &queryResolver{r} }

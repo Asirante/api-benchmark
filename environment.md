@@ -137,3 +137,24 @@
 3. **워크로드의 DB 쿼리 수가 아키텍처마다 다름**
    - 반복 1회의 동기 DB 쿼리 수: REST 19, gRPC 19, **GraphQL 24**. GraphQL TC3 는 `getOrderDetails`(7회)를 호출하는 반면 REST/gRPC TC3 는 가벼운 조회 2회입니다.
    - 같은 도착률에서 GraphQL 의 DB 부하가 더 큰 것은 프로토콜이 아니라 이 시나리오 설계에서 비롯된 부분이 있습니다.
+
+## 10. 후속 실험 D/E (브랜치 `exp/de-pool-tc3`, A/B/C 코드는 태그 `exp-abc-20260915_030551`)
+
+- 위 7절의 (a) Order.Customer 연관 매핑 오류와 3.절의 (b) TC6 비동기 쓰기 큐는 직전 135회 결과와의 비교 가능성을 위해 **수정하지 않음**
+- 풀 설정: `DB_MAX_OPEN_CONNS`(기본 500), `DB_MAX_IDLE_CONNS`(기본 100). database/sql 이 idle 을 open 이하로 자동 조정하므로 실제 조건은 20:20, 50:50, 100:100, 500:100(기존), 500:500
+- 풀 통계: `DB_POOL_STATS_INTERVAL=1s` 로 `sql.DBStats`(open, in_use, wait_count, wait_duration, max_idle_closed) 기록
+- 설정 전달: `docker-compose.exp.yml` override (기존 compose 파일 미수정). InfluxDB 는 `INFLUXDB_HTTP_MAX_BODY_SIZE=0`, k6 는 `K6_INFLUXDB_PUSH_INTERVAL=250ms`
+- 실험 E: GraphQL 스키마에 `getOrderItems` 루트 필드 추가(gqlgen v0.17.49 재생성, generated.go 는 추가분만). `GQL_TC3_LIGHT=1` 이면 TC3 를 요청 1회·루트 필드 2개(`getSimpleOrder` + `getOrderItems`)로 보냄
+- 반복 1회당 동기 SELECT 수 검증 (2026-09-15):
+
+  | 조건 | 코드 수준 (SQLite + GORM 로거) | 실제 DB (`log_statement=all`, 반복당) |
+  |---|---|---|
+  | REST | 19 | 19 |
+  | gRPC | 19 | 19 |
+  | GraphQL 기존 | 24 | 24 |
+  | GraphQL light | 19 | 19 |
+
+  네 조건 모두 TC6 비동기 INSERT 1회(+BEGIN/COMMIT)는 별도. pgx 의 `-- ping` 은 유휴 연결 재사용 시 연결 확인이며 쿼리가 아님
+- 1초 간격 수집: `pg_activity.csv`(client_addr × 상태 × 대기 이벤트), `pg_db_stats.csv`(누적 연결 생성 수), `cgroup_db.csv`/`cgroup_api.csv`(cpu.stat: 사용량·CFS 스로틀링), `pool_stats.log`
+- 메모리 대책: 세션 중 `vm.swappiness=10`(종료 시 원래 값 60 복원), 실행 전 MemAvailable < 4 GB 이면 페이지 캐시 비우고 워밍업, 원시 지표는 분석용 6종만 gzip 저장
+- **VM 시계 이상 (2026-09-15 13:40 확인)**: 외부 기준 133초 동안 VM 단조 시계는 120.2초만 경과(약 10% 느림). 실시간 시계는 약 30초마다 3.3초씩 앞으로 보정됨. 직전 세션(03:30 기준) vmstat 은 62초에 62샘플로 정상이었으므로 그 이후 발생. k6 지연·도착률·실행 시간, cgroup CPU 주기가 모두 단조 시계를 따르므로 이 상태의 측정은 직전 세션과 비교할 수 없음
