@@ -28,10 +28,28 @@ const spikeStages = [
   { duration: '15s', target: 0 },          // 8. 완전 회수
 ];
 
-export const options = {
-  setupTimeout: '2m',
-  stages: __ENV.TEST_MODE === 'spike' ? spikeStages : standardStages,
+// 3. 개방 루프 (실험 C): 고정 도착률. 느린 쪽이 스스로 부하를 줄이지 못하게 함
+//    rate 는 초당 반복(iteration) 시작 수. 소화하지 못한 반복은 dropped_iterations 로 집계됨
+const openLoop = __ENV.TEST_MODE === 'open_loop';
+const parsedRate = parseInt(__ENV.RATE);
+const parsedPreVUs = parseInt(__ENV.PRE_VUS);
+const openLoopScenarios = {
+  open_loop: {
+    executor: 'constant-arrival-rate',
+    rate: isNaN(parsedRate) ? 140 : parsedRate,
+    timeUnit: '1s',
+    duration: __ENV.DURATION || '60s',
+    preAllocatedVUs: isNaN(parsedPreVUs) ? 1000 : parsedPreVUs,
+    maxVUs: isNaN(parsedPreVUs) ? 1000 : parsedPreVUs,
+  },
 };
+
+export const options = openLoop
+  ? { setupTimeout: '2m', scenarios: openLoopScenarios }
+  : {
+      setupTimeout: '2m',
+      stages: __ENV.TEST_MODE === 'spike' ? spikeStages : standardStages,
+    };
 
 export default function () {
   const validId = 'e481f51cbdc54678b7cc49136f2d6af7';
@@ -83,5 +101,9 @@ export default function () {
     check(res, { 'TC7 GQL Error': (r) => r.status === 200 && r.json().errors !== undefined });
   });
 
-  sleep(1);
+  // 개방 루프는 도착률이 페이싱하므로 대기 없음
+  // JITTER=1 (실험 B): 평균 1초는 유지하고 VU 간 발사 시점만 분산
+  if (!openLoop) {
+    sleep(__ENV.JITTER === '1' ? Math.random() * 2 : 1);
+  }
 }

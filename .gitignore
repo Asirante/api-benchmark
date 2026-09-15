@@ -3,3 +3,10 @@ data/
 influxdb_backups/
 csv_results/
 olds/
+resource_logs/
+experiments_*.log
+__pycache__/
+*.pyc
+/rest
+/graphql
+/grpc

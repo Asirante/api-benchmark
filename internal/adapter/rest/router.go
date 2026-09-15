@@ -32,6 +32,9 @@ func SetupRouter(controller *OrderController) *gin.Engine {
 		// [TC 4, 5] 극한 조인 (무거운 전체 데이터 반환)
 		v1.GET("/orders/details/:id", controller.GetOrderDetails)
 
+		// [실험 A] TC5 응답 필드 축소 (GraphQL TC5와 동일 필드만 반환)
+		v1.GET("/orders/slim/:id", controller.GetOrderSlim)
+
 		// [TC 6] 트랜잭션 쓰기
 		v1.POST("/orders", controller.CreateOrder)
 	}
