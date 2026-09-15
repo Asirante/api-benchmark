@@ -7,7 +7,11 @@
   summary_de_tc.csv          실행 1회 × (tc, api) 별 지연 (InfluxDB 원시 데이터)
   summary_de_conditions.csv  조건 별 (exp, arch, pool, rate, light) 3회 집계
   summary_de_throttle.csv    풀 크기 × rate × 아키텍처 별 DB/API CPU 스로틀링 비율
-  gate.txt                   중단 조건 판정 (기준 조건 풀 500:100, 480 rps)
+  gate.txt                   중단 조건 판정 (기준 조건 풀 500:100, 480 rps) — 아키텍처별
+  gate_eligible.txt          실험 D 인과 판정 대상 아키텍처 (기준 조건에서 붕괴가 1회 이상 관측된 것)
+
+시계: clock_checks.csv(풀 블록 전환마다 기록)를 실행 시각과 맞춰, 실행이 속한 검사 구간의 드리프트를
+      clock_drift_pct 로 붙임. |드리프트| > 3% 인 구간의 실행은 clock_ok=0 (사용 금지)
 
 붕괴 판정 기준 (계획에서 고정):
   붕괴 구간  1초 완료 반복 수 < 목표 rate × 50% 가 5초 이상 연속, 그 구간에 활성 VU >= 600
@@ -23,6 +27,7 @@ import math
 import statistics
 import sys
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -34,6 +39,9 @@ COLLAPSE_MIN_VUS = 600
 DROP_COLLAPSE_480 = 0.01
 STABLE_DROP = 0.001
 STABLE_P99_MS = 50
+CLOCK_DRIFT_MAX_PCT = 3.0
+CLOCK_MIN_INTERVAL_S = 120
+BASELINE = {"pool": "500:100", "rate": "480", "light": "0"}
 CPU_SATURATED_USEC_PER_SEC = 1.9e6  # 2코어 제한의 95%
 
 
@@ -297,6 +305,39 @@ def write_csv(path, rows):
     print(f"  - {path.name}: {len(rows)}행")
 
 
+def load_clock_checks(d):
+    rows = []
+    for r in read_csv_any(d / "clock_checks.csv"):
+        try:
+            rows.append({"id": r["check_id"], "realtime": float(r["realtime"]), "interval": num(r["interval_mono_s"]),
+                         "drift": num(r["drift_pct_interval"]), "freq": r.get("ntp_freq_ppm", ""), "leap": r.get("chrony_leap", "")})
+        except (KeyError, ValueError):
+            continue
+    return sorted(rows, key=lambda x: x["realtime"])
+
+
+def clock_state(checks, started, ended):
+    """실행 구간 [started, ended] 를 덮는 검사 구간(직전 검사 ≤ started, 다음 검사 ≥ ended)의 드리프트."""
+    if not checks:
+        return {"clock_check_id": "", "clock_drift_pct": math.nan, "clock_ok": ""}
+    try:
+        t0 = datetime.strptime(started, "%Y-%m-%dT%H:%M:%S%z").timestamp()
+        t1 = datetime.strptime(ended, "%Y-%m-%dT%H:%M:%S%z").timestamp()
+    except ValueError:
+        return {"clock_check_id": "", "clock_drift_pct": math.nan, "clock_ok": ""}
+    before = [c for c in checks if c["realtime"] <= t0]
+    after = [c for c in checks if c["realtime"] >= t1]
+    if not before or not after:
+        return {"clock_check_id": "", "clock_drift_pct": math.nan, "clock_ok": "unchecked"}
+    c = after[0]
+    if math.isnan(c["interval"]) or c["interval"] < CLOCK_MIN_INTERVAL_S:
+        ok = "short_interval"
+    else:
+        ok = "1" if abs(c["drift"]) <= CLOCK_DRIFT_MAX_PCT else "0"
+    return {"clock_check_id": f"{before[-1]['id']}-{c['id']}", "clock_drift_pct": c["drift"], "clock_ok": ok,
+            "chrony_ntp_freq_ppm": c["freq"], "chrony_leap": c["leap"]}
+
+
 def med_range(vals):
     vals = [v for v in vals if isinstance(v, (int, float)) and not math.isnan(v)]
     if not vals:
@@ -309,26 +350,37 @@ def main():
     with (d / "manifest.csv").open(newline="") as f:
         manifest = [r for r in csv.DictReader(f) if not r["run_id"].endswith("_incomplete")]
 
+    checks = load_clock_checks(d)
     runs, tc_rows = [], []
     for run in manifest:
         run_dir = d / run["run_id"]
         if not run_dir.is_dir():
             print(f"  [경고] 폴더 없음: {run_dir}")
             continue
-        runs.append(summarize_run(run, run_dir))
+        row = summarize_run(run, run_dir)
+        row.update(clock_state(checks, run["started"], run["ended"]))
+        runs.append(row)
         # 개방 루프이므로 exp 를 C 로 넘겨 전 구간(all) 집계를 사용
         for r in se.summarize_run({**run, "exp": "C", "level": run["rate"], "cond": f"p{run['pool_open']}i{run['pool_idle']}_light{run['light']}"}, run_dir):
             r["exp"] = run["exp"]
             tc_rows.append(r)
 
+    base = [r for r in runs if all(r[k] == v for k, v in BASELINE.items())]
+    eligible = sorted({r["arch"] for r in base if r["verdict"] == "collapse"})
+    for r in runs:
+        r["d_causal_target"] = "1" if r["arch"] in eligible else "0"
+
     conds = defaultdict(list)
     for r in runs:
         conds[(r["exp"], r["arch"], r["pool"], r["rate"], r["light"])].append(r)
     cond_rows = []
-    for (exp, arch, pool, rate, light), rs in sorted(conds.items(), key=lambda kv: (kv[0][0], kv[0][1], int(kv[0][2].split(":")[0]), int(kv[0][2].split(":")[1]), int(kv[0][3]), kv[0][4])):
+    for (exp, arch, pool, rate, light), all_rs in sorted(conds.items(), key=lambda kv: (kv[0][0], kv[0][1], int(kv[0][2].split(":")[0]), int(kv[0][2].split(":")[1]), int(kv[0][3]), kv[0][4])):
+        rs = [r for r in all_rs if r.get("clock_ok") != "0"]  # 시계 드리프트 초과 구간의 실행은 집계에서 제외
         row = {"exp": exp, "arch": arch, "pool": pool, "rate": rate, "light": light, "reps": len(rs),
                "collapse_runs": sum(r["verdict"] == "collapse" for r in rs),
-               "stable_runs": sum(r["verdict"] == "stable" for r in rs)}
+               "stable_runs": sum(r["verdict"] == "stable" for r in rs),
+               "d_causal_target": "1" if arch in eligible else "0",
+               "clock_bad_runs": sum(r.get("clock_ok") == "0" for r in all_rs)}
         for k in ("completed_per_scheduled_sec", "dropped_ratio", "k6_p50_ms", "k6_p99_ms", "iter_per_sec_cv", "k6_active_vus_max",
                   "db_throttled_period_ratio", "db_cpu_saturated_sec", "pg_max_target_conns", "pg_max_procarray",
                   "pg_sessions_opened", "pool_wait_count", "pool_wait_sec"):
@@ -338,7 +390,7 @@ def main():
 
     throttle = defaultdict(list)
     for r in runs:
-        if r["light"] == "0" and r["rate"] in ("480", "800"):
+        if r["light"] == "0" and r["rate"] in ("480", "800") and r.get("clock_ok") != "0":
             throttle[(r["pool"], r["rate"], r["arch"])].append(r)
     throttle_rows = []
     for (pool, rate, arch), rs in sorted(throttle.items(), key=lambda kv: (int(kv[0][0].split(":")[0]), int(kv[0][0].split(":")[1]), int(kv[0][1]), kv[0][2])):
@@ -351,16 +403,20 @@ def main():
             "collapse_runs": sum(r["verdict"] == "collapse" for r in rs),
         })
 
-    base = [r for r in runs if r["pool"] == "500:100" and r["rate"] == "480" and r["light"] == "0"]
-    lines = [f"기준 조건 (풀 500:100, 480 rps, light0): {len(base)}회 실행, 붕괴 {sum(r['verdict'] == 'collapse' for r in base)}회"]
+    lines = [f"기준 조건 (풀 500:100, 480 rps, light0): {len(base)}회 실행, 붕괴 {sum(r['verdict'] == 'collapse' for r in base)}회 — 아키텍처별 판정"]
     for arch in ("rest", "graphql", "grpc"):
-        rs = [r for r in base if r["arch"] == arch]
-        lines.append(f"  {arch:8} {len(rs)}회 중 붕괴 {sum(r['verdict'] == 'collapse' for r in rs)}회  "
-                     + ", ".join(f"rep{r['rep']}={r['verdict']}(구간 {r['collapse_episodes']}, drop {r['dropped_ratio'] * 100:.2f}%)" for r in sorted(rs, key=lambda x: x["rep"])))
+        rs = sorted((r for r in base if r["arch"] == arch), key=lambda x: x["rep"])
+        n_collapse = sum(r["verdict"] == "collapse" for r in rs)
+        status = "판정 대상" if arch in eligible else ("제외 (붕괴 미관측)" if rs else "실행 없음")
+        lines.append(f"  {arch:8} {len(rs)}회 중 붕괴 {n_collapse}회 → {status}  "
+                     + ", ".join(f"rep{r['rep']}={r['verdict']}(구간 {r['collapse_episodes']}, drop {r['dropped_ratio'] * 100:.2f}%, 시계 {r.get('clock_ok') or '-'})" for r in rs))
     if base:
-        lines.append("판정: " + ("붕괴 재현됨 → 본 실험 진행 가능" if any(r["verdict"] == "collapse" for r in base)
-                               else "붕괴 재현되지 않음 → 중단 조건 해당 (본 실험 진행하지 않음)"))
+        lines.append("실험 D 인과 판정 대상: " + (" ".join(eligible) if eligible else "없음 → 중단 조건 해당 (본 실험 진행하지 않음)"))
     (d / "gate.txt").write_text("\n".join(lines) + "\n")
+    (d / "gate_eligible.txt").write_text(" ".join(eligible))
+    bad_clock = [r["run_id"] for r in runs if r.get("clock_ok") == "0"]
+    if bad_clock:
+        lines.append(f"[경고] 시계 드리프트 3% 초과 구간의 실행 {len(bad_clock)}회: 분석에서 제외할 것")
 
     print(f"[집계] {d}")
     write_csv(d / "summary_de_runs.csv", runs)

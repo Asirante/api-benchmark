@@ -30,6 +30,8 @@ EXPORT_METRICS=${EXPORT_METRICS:-reduced}  # reduced | full
 K6_PUSH_INTERVAL=${K6_PUSH_INTERVAL:-250ms}
 K6_IMAGE=${K6_IMAGE:-grafana/k6}
 SHUFFLE=${SHUFFLE:-1}
+CLOCK_DRIFT_MAX_PCT=${CLOCK_DRIFT_MAX_PCT:-3}   # 풀 블록 사이 시계 드리프트가 이 값을 넘으면 중단
+CLOCK_MIN_INTERVAL=${CLOCK_MIN_INTERVAL:-120}   # 판정에 쓰는 최소 구간(초). 실시간 시계가 약 30초마다 계단식으로 보정되므로 짧은 구간은 판정하지 않음
 SESSION_ID=${SESSION_ID:-de_$(date +%Y%m%d_%H%M%S)}
 
 INFLUX_DB_NAME="k6"
@@ -227,11 +229,11 @@ start_watchers() {
     WATCH_PIDS=()
     echo "time,client_addr,state,wait_event_type,wait_event,count" > "${dir}/pg_activity.csv"
     printf '%s\n\\watch 1\n' "$PG_ACTIVITY_SQL" | docker exec -i benchmark_db sh -c 'echo $$ > /tmp/exp_watch_activity.pid; exec psql -U benchmark_user -d olist_db -AtF,' \
-        | grep -v '^$' >> "${dir}/pg_activity.csv" &
+        | grep --line-buffered -v '^$' >> "${dir}/pg_activity.csv" &
     WATCH_PIDS+=($!)
     echo "time,numbackends,sessions,sessions_abandoned,xact_commit" > "${dir}/pg_db_stats.csv"
     printf '%s\n\\watch 1\n' "$PG_DB_STATS_SQL" | docker exec -i benchmark_db sh -c 'echo $$ > /tmp/exp_watch_dbstats.pid; exec psql -U benchmark_user -d olist_db -AtF,' \
-        | grep -v '^$' >> "${dir}/pg_db_stats.csv" &
+        | grep --line-buffered -v '^$' >> "${dir}/pg_db_stats.csv" &
     WATCH_PIDS+=($!)
     local header="epoch,$(docker exec benchmark_db awk '{printf "%s,", $1}' /sys/fs/cgroup/cpu.stat)"
     echo "$header" > "${dir}/cgroup_db.csv"
@@ -295,6 +297,7 @@ wait_until_quiet() {
 # 메모리: 세션 시작 시 swappiness 낮춤(종료 시 복원), 실행 전 가드
 SWAPPINESS_ORIG=""
 set_swappiness() {
+    [ -n "$SWAPPINESS_ORIG" ] && return 0
     SWAPPINESS_ORIG=$(cat /proc/sys/vm/swappiness)
     privileged "sysctl -w vm.swappiness=${SWAPPINESS}" >/dev/null 2>&1
     echo "[메모리] vm.swappiness ${SWAPPINESS_ORIG} → $(cat /proc/sys/vm/swappiness)"
@@ -317,6 +320,76 @@ memory_guard() {
         dropped=1
     fi
     echo "$avail $swap_used $dropped"
+}
+
+# ----------------------------------------------------------------------------
+# VM 시계 검사 (풀 블록 전환 시점에 대기 없이 기록)
+#   drift = 직전 검사 이후 (실시간 시계 경과 - 단조 시계 경과) / 단조 시계 경과
+#   실시간 시계는 Hyper-V 시간 동기화(hv_utils)로 호스트 시각에 맞춰지므로, k6·Go·cgroup 이 쓰는 단조 시계가
+#   실제보다 느리거나 빠르면 이 값이 커짐 (2026-09-15 확인된 이상 상태에서 약 +11%)
+#   chrony 는 WSL 에서 -x(시계 제어 안 함)로 실행되어 측정만 함. 선택 기준이 PHC0(Hyper-V 호스트 시계)와
+#   인터넷 NTP 사이를 오가므로, 여러 번 조회해 두 기준의 값을 따로 기록 (해석용, 중단 판정에는 쓰지 않음)
+CLOCK_PREV_R="" CLOCK_PREV_U="" CLOCK_START_R="" CLOCK_START_U="" CLOCK_CHECK_N=0
+CLOCK_HEADER="check_id,time,label,realtime,monotonic,interval_mono_s,drift_pct_interval,drift_pct_session,ntp_ref,ntp_offset_s,ntp_freq_ppm,phc_offset_s,phc_freq_ppm,chrony_leap"
+
+chrony_fields() {
+    # 출력: ntp_ref,ntp_offset_s,ntp_freq_ppm,phc_offset_s,phc_freq_ppm,leap
+    #   ntp_* : 인터넷 NTP 가 선택 기준일 때의 값 (freq_ppm 은 실제 시간 대비 VM 시계 속도 오차의 독립 추정치)
+    #   phc_* : Hyper-V 호스트 시계(PHC0)가 선택 기준일 때의 값
+    command -v chronyc >/dev/null || { echo ",,,,,unavailable"; return; }
+    local i t ntp="" phc="" leap=""
+    for i in 1 2 3 4 5 6 7 8; do
+        t=$(chronyc -c tracking 2>/dev/null) || continue
+        leap=$(cut -d, -f14 <<< "$t")
+        if [ "$(cut -d, -f2 <<< "$t")" == "PHC0" ]; then
+            [ -z "$phc" ] && phc=$(awk -F, '{printf "%s,%s", $5, $8}' <<< "$t")
+        else
+            [ -z "$ntp" ] && ntp=$(awk -F, '{printf "%s,%s,%s", $2, $5, $8}' <<< "$t")
+        fi
+        [ -n "$ntp" ] && [ -n "$phc" ] && break
+        sleep 0.2
+    done
+    echo "${ntp:-,,},${phc:-,},${leap:-unavailable}"
+}
+
+clock_check() {
+    local label=$1
+    local r=$(date +%s.%N) u=$(cut -d' ' -f1 /proc/uptime)
+    local chrony=$(chrony_fields)
+    local f="${OUT_DIR}/clock_checks.csv"
+    [ -f "$f" ] || echo "$CLOCK_HEADER" > "$f"
+    CLOCK_CHECK_N=$((CLOCK_CHECK_N + 1))
+    local interval="" drift="" drift_session=""
+    if [ -n "$CLOCK_PREV_R" ]; then
+        read -r interval drift drift_session < <(awk -v r="$r" -v u="$u" -v pr="$CLOCK_PREV_R" -v pu="$CLOCK_PREV_U" -v sr="$CLOCK_START_R" -v su="$CLOCK_START_U" \
+            'BEGIN { du = u - pu; dsu = u - su; printf "%.1f %.2f %.2f\n", du, (du > 0 ? ((r - pr) - du) / du * 100 : 0), (dsu > 0 ? ((r - sr) - dsu) / dsu * 100 : 0) }')
+    else
+        CLOCK_START_R=$r; CLOCK_START_U=$u
+    fi
+    echo "${CLOCK_CHECK_N},$(date '+%Y-%m-%dT%H:%M:%S%z'),${label},${r},${u},${interval},${drift},${drift_session},${chrony}" >> "$f"
+    IFS=, read -r n_ref n_offset n_freq p_offset p_freq c_leap <<< "$chrony"
+    echo "  [시계] #${CLOCK_CHECK_N} ${label}: 구간 ${interval:--}초 드리프트 ${drift:--}% (세션 누적 ${drift_session:--}%) | chrony NTP(${n_ref:-?}) 속도오차 ${n_freq:-?}ppm 오프셋 ${n_offset:-?}s, PHC0 오프셋 ${p_offset:-?}s ${c_leap}"
+    [ "$c_leap" != "Normal" ] && echo "  [시계 경고] chrony 동기화 상태: ${c_leap} (드리프트 판정은 계속 수행)"
+    CLOCK_PREV_R=$r; CLOCK_PREV_U=$u
+    if [ -n "$drift" ] && awk -v i="$interval" -v d="$drift" -v m="$CLOCK_DRIFT_MAX_PCT" -v mi="$CLOCK_MIN_INTERVAL" \
+        'BEGIN { exit !(i >= mi && (d > m || d < -m)) }'; then
+        print_header " [중단] 시계 드리프트 ${drift}% > ${CLOCK_DRIFT_MAX_PCT}% (${label} 직전 구간). 남은 실행을 진행하지 않음"
+        echo "  직전 풀 블록의 데이터는 clock_checks.csv #$((CLOCK_CHECK_N - 1))~#${CLOCK_CHECK_N} 구간이므로 사용하지 말 것"
+        python3 analysis/summarize_de.py "$OUT_DIR"
+        exit 3
+    fi
+}
+
+# 세션 시작 시 시간 동기화 구성 기록
+record_time_sync() {
+    {
+        echo "# 시간 동기화 구성 $(date '+%Y-%m-%dT%H:%M:%S%z')"
+        chronyd -v 2>&1 | head -1
+        chronyc tracking 2>&1
+        chronyc sources 2>&1
+        echo "hv_utils(Hyper-V 시간 동기화 드라이버): $(ls /sys/bus/vmbus/drivers/ 2>/dev/null | grep -q hv_utils && echo loaded || echo not-loaded)"
+        echo "PTP: $(cat /sys/class/ptp/ptp0/clock_name 2>/dev/null)"
+    } > "${OUT_DIR}/time_sync.txt"
 }
 
 # ----------------------------------------------------------------------------
@@ -475,6 +548,8 @@ run_plan() {
     local total=$(echo "$plan" | wc -l) cur=0 start=$(date +%s) current_pool=""
     print_header " [실험 ${name}] 총 ${total}회 | 세션 ${SESSION_ID} | 결과 → ${OUT_DIR}"
     set_swappiness
+    [ -f "${OUT_DIR}/time_sync.txt" ] || record_time_sync
+    clock_check "${name}_start"
 
     while IFS='|' read -r exp arch open idle rate light rep; do
         cur=$((cur + 1))
@@ -483,6 +558,7 @@ run_plan() {
             echo "  [건너뜀] 이미 완료: $run_id"; continue
         fi
         if [ "${open}:${idle}" != "$current_pool" ]; then
+            [ -n "$current_pool" ] && clock_check "${name}_after_p${current_pool/:/i}"
             apply_pool "$open" "$idle"
             current_pool="${open}:${idle}"
         fi
@@ -494,6 +570,7 @@ run_plan() {
         fi
     done <<< "$plan"
 
+    clock_check "${name}_end"
     print_header " 🏁 완료: ${total}회, $(( ($(date +%s) - start) / 60 ))분 소요"
     python3 analysis/summarize_de.py "$OUT_DIR"
 }
@@ -554,7 +631,17 @@ case "$COMMAND" in
   prepare)    prepare ;;
   verify-queries) preflight; verify_queries ;;
   gate)       preflight; run_plan "$(build_gate_plan)" gate ;;
-  all)        preflight; run_plan "$(build_plan)" all ;;
+  all)
+    preflight
+    run_plan "$(build_gate_plan)" gate
+    eligible=$(cat "${OUT_DIR}/gate_eligible.txt" 2>/dev/null)
+    if [ -z "$eligible" ]; then
+        print_header " [중단] 기준 조건에서 붕괴가 관측된 아키텍처가 없음 → 실험 D 인과 판정 대상 없음. 본 실험 진행하지 않음"
+        exit 4
+    fi
+    print_header " [기준 조건 판정] 실험 D 인과 판정 대상: ${eligible} | 제외: $(for a in $ARCHS; do echo " $eligible " | grep -q " $a " || printf '%s ' "$a"; done)"
+    run_plan "$(build_plan)" all
+    ;;
   summarize)  python3 analysis/summarize_de.py "$OUT_DIR" ;;
   *)
     echo "사용법: ./experiments_de.sh [명령어]"

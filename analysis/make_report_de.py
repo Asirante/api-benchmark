@@ -42,12 +42,16 @@ def main():
     w(f"- 실행 {len(runs)}회. 표기는 `3회 중앙값 [최소–최대]`, 처리량·dropped·백분위수는 k6 요약 기준")
     w("- 붕괴 실행: 1초 완료 반복 수 < 목표의 50% 가 5초 이상(활성 VU ≥ 600) 또는 480 rps 에서 dropped ≥ 1%\n")
 
+    eligible = set((d / "gate_eligible.txt").read_text().split()) if (d / "gate_eligible.txt").exists() else set(ARCHS)
     gate = d / "gate.txt"
     if gate.exists():
         w("## 중단 조건 (기준 조건 풀 500:100, 480 rps)\n")
         w("```\n" + gate.read_text().strip() + "\n```\n")
 
     w("## 실험 D — 풀 크기별 붕괴와 처리량\n")
+    excluded = [a for a in ARCHS if a not in eligible]
+    if excluded:
+        w(f"> 인과 판정 제외: {', '.join(excluded)} (기준 조건에서 붕괴 미관측). 해당 행은 참고용으로만 표시\n")
     for rate in ("480", "800"):
         w(f"### {rate} rps\n")
         w("| 풀 (open:idle) | 아키텍처 | 붕괴/실행 | 완료 iter/s | dropped | 전 TC p99 ms | 1초 처리량 변동계수 | DB 스로틀링 주기 비율 | DB CPU 포화 초 | ProcArray 대기 최대 | 연결 생성 수 | 풀 대기 초 |")
@@ -57,7 +61,8 @@ def main():
                 r = idx.get(("D", arch, pool, rate, "0"))
                 if not r:
                     continue
-                w(f"| {pool} | {arch} | {r['collapse_runs']}/{r['reps']} | {cell(r, 'completed_per_scheduled_sec', 0)} | "
+                label = arch if arch in eligible else f"{arch} (제외)"
+                w(f"| {pool} | {label} | {r['collapse_runs']}/{r['reps']} | {cell(r, 'completed_per_scheduled_sec', 0)} | "
                   f"{cell(r, 'dropped_ratio', 1, 100, '%')} | {cell(r, 'k6_p99_ms', 1)} | {cell(r, 'iter_per_sec_cv', 3)} | "
                   f"{cell(r, 'db_throttled_period_ratio', 1, 100, '%')} | {cell(r, 'db_cpu_saturated_sec', 0)} | "
                   f"{cell(r, 'pg_max_procarray', 0)} | {cell(r, 'pg_sessions_opened', 0)} | {cell(r, 'pool_wait_sec', 2)} |")
@@ -85,11 +90,27 @@ def main():
                             f"{cell(r, 'dropped_ratio', 1, 100, '%')} | {cell(r, 'k6_p99_ms', 1)} | {cell(r, 'db_throttled_period_ratio', 1, 100, '%')} |")
         out.extend(rows)
 
+    w("\n## 시계 검사 (풀 블록 전환마다)\n")
+    checks = []
+    if (d / "clock_checks.csv").exists():
+        with (d / "clock_checks.csv").open(newline="") as f:
+            checks = list(csv.DictReader(f))
+    if checks:
+        w("| # | 시각 | 시점 | 구간(초) | 드리프트 % | 세션 누적 % | NTP 대비 속도 오차 ppm | NTP 대비 오프셋 s | PHC0 대비 오프셋 s | chrony 상태 |")
+        w("|---|---|---|---|---|---|---|---|---|---|")
+        for c in checks:
+            w(f"| {c['check_id']} | {c['time']} | {c['label']} | {c['interval_mono_s']} | {c['drift_pct_interval']} | {c['drift_pct_session']} | "
+              f"{c.get('ntp_freq_ppm', '')} | {c.get('ntp_offset_s', '')} | {c.get('phc_offset_s', '')} | {c.get('chrony_leap', '')} |")
+    else:
+        w("- clock_checks.csv 없음")
+
     w("\n## 데이터 품질\n")
     incomplete = [r["run_id"] for r in runs if r.get("influx_completeness") and float(r["influx_completeness"]) < 0.999]
     dropped_cache = sum(r.get("cache_dropped") == "1" for r in runs)
     w(f"- InfluxDB 저장률 0.999 미만 실행: {len(incomplete)}회 {incomplete if incomplete else ''}")
     w(f"- 실행 전 페이지 캐시 비우기 발생: {dropped_cache}회")
+    bad_clock = [r["run_id"] for r in runs if r.get("clock_ok") == "0"]
+    w(f"- 시계 드리프트 3% 초과 구간의 실행(집계 제외): {len(bad_clock)}회 {bad_clock if bad_clock else ''}")
 
     (d / "report_de.md").write_text("\n".join(out) + "\n")
     print(f"[완료] {d / 'report_de.md'}")
