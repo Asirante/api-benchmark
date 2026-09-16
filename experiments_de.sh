@@ -12,11 +12,14 @@ COMMAND=${1:-help}
 REPS=${REPS:-3}
 POOLS=${POOLS:-"20:20 50:50 100:100 500:100 500:500"}   # MaxOpen:MaxIdle
 BASELINE_POOL=${BASELINE_POOL:-"500:100"}                # 직전 세션과 같은 설정. 실험 E 도 이 블록에서 실행
-D_RATES=${D_RATES:-"480 800"}
+GATE_RATES=${GATE_RATES:-"640 700"}     # 기준 조건 rate. 앞에서 붕괴가 없으면 다음 rate 로 한 단계만 상향
+SAT_RATE=${SAT_RATE:-800}               # 포화 구간 비교 (가설 1 대체 판정 경로)
+CONTRAST_RATE=${CONTRAST_RATE:-480}     # 용량의 약 70% 지점 대조
+CONTRAST_POOLS=${CONTRAST_POOLS:-"20:20"}  # 480 rps 대조로 추가 실행할 풀 (500:100 은 세션 de_20260916_0241 데이터 사용)
 E_RATES=${E_RATES:-"480 640 800"}
 INCLUDE_E=${INCLUDE_E:-1}
 ARCHS=${ARCHS:-"rest graphql grpc"}
-DURATION_480=${DURATION_480:-180s}     # 붕괴 검출 목적 (480 rps 만 연장)
+DURATION_MAP=${DURATION_MAP:-"480:180s 640:180s 700:180s 800:60s"}  # 붕괴 검출이 목적인 rate 는 180초, 포화 비교는 60초
 DURATION_DEFAULT=${DURATION_DEFAULT:-60s}
 PRE_VUS=${PRE_VUS:-1000}
 COOLDOWN=${COOLDOWN:-20}
@@ -71,7 +74,11 @@ print_header() {
 script_for()    { case "$1" in rest) echo bench_rest.js ;; graphql) echo bench_gql.js ;; grpc) echo bench_grpc.js ;; esac; }
 container_for() { case "$1" in rest) echo benchmark_rest ;; graphql) echo benchmark_graphql ;; grpc) echo benchmark_grpc ;; esac; }
 service_for()   { case "$1" in rest) echo rest-api ;; graphql) echo graphql-api ;; grpc) echo grpc-api ;; esac; }
-duration_for()  { [ "$1" == "480" ] && echo "$DURATION_480" || echo "$DURATION_DEFAULT"; }
+duration_for() {
+    local r p
+    for p in $DURATION_MAP; do [ "${p%%:*}" == "$1" ] && { echo "${p##*:}"; return; }; done
+    echo "$DURATION_DEFAULT"
+}
 meminfo_kb()    { awk -v k="$1:" '$1 == k {print $2}' /proc/meminfo; }
 
 run_influx_query() {
@@ -91,16 +98,22 @@ shuffle_with() {
 
 block_entries() {
     local pool=$1 rep=$2 open=${1%%:*} idle=${1##*:} a r
+    local collapse_rate=$(cat "${OUT_DIR}/gate_rate.txt" 2>/dev/null)
+    local eligible=$(cat "${OUT_DIR}/gate_eligible.txt" 2>/dev/null)
     {
-        for r in $D_RATES; do for a in $ARCHS; do echo "D|$a|$open|$idle|$r|0|$rep"; done; done
+        # 포화 구간 비교: 전 풀 × 전 아키텍처 (가설 1 대체 판정 경로)
+        for a in $ARCHS; do echo "D|$a|$open|$idle|$SAT_RATE|0|$rep"; done
+        # 붕괴가 재현된 rate 가 있으면 그 rate 를 전 풀 × 해당 아키텍처로 실행 (가설 1 본 판정 경로)
+        if [ -n "$eligible" ] && [ -n "$collapse_rate" ]; then
+            for a in $eligible; do echo "D|$a|$open|$idle|$collapse_rate|0|$rep"; done
+        fi
+        # 480 rps 대조 (지정한 풀에서만)
+        if echo " $CONTRAST_POOLS " | grep -q " $pool "; then
+            for a in $ARCHS; do echo "D|$a|$open|$idle|$CONTRAST_RATE|0|$rep"; done
+        fi
+        # 실험 E: GraphQL light 는 기준 풀 블록에서만
         if [ "$INCLUDE_E" == "1" ] && [ "$pool" == "$BASELINE_POOL" ]; then
             for r in $E_RATES; do echo "E|graphql|$open|$idle|$r|1|$rep"; done
-            for r in $E_RATES; do
-                # D 에 없는 rate 의 비교 기준 (GraphQL light0, REST, gRPC) 만 추가
-                if ! echo " $D_RATES " | grep -q " $r "; then
-                    for a in $ARCHS; do echo "E|$a|$open|$idle|$r|0|$rep"; done
-                fi
-            done
         fi
     } | shuffle_with "${SESSION_ID}_${rep}_${pool}"
 }
@@ -114,12 +127,12 @@ build_plan() {
     done
 }
 
-# 중단 조건 확인용: 기준 조건(풀 500:100, 480 rps) 만
+# 기준 조건(풀 500:100, 지정 rate) 만 — 붕괴 재현 여부 확인용
 build_gate_plan() {
-    local rep a open=${BASELINE_POOL%%:*} idle=${BASELINE_POOL##*:}
+    local rate=$1 rep a open=${BASELINE_POOL%%:*} idle=${BASELINE_POOL##*:}
     for rep in $(seq 1 "$REPS"); do
-        for a in $(printf "%s\n" $ARCHS | shuffle_with "${SESSION_ID}_${rep}_gate"); do
-            echo "D|$a|$open|$idle|480|0|$rep"
+        for a in $(printf "%s\n" $ARCHS | shuffle_with "${SESSION_ID}_${rep}_gate${rate}"); do
+            echo "D|$a|$open|$idle|$rate|0|$rep"
         done
     done
 }
@@ -381,6 +394,21 @@ clock_check() {
 }
 
 # 세션 시작 시 시간 동기화 구성 기록
+record_session_meta() {
+    cat > "${OUT_DIR}/session_meta.txt" <<META
+gate_rates=${GATE_RATES}
+sat_rate=${SAT_RATE}
+contrast_rate=${CONTRAST_RATE}
+contrast_pools=${CONTRAST_POOLS}
+baseline_pool=${BASELINE_POOL}
+pools=${POOLS}
+archs=${ARCHS}
+reps=${REPS}
+duration_map=${DURATION_MAP}
+e_rates=${E_RATES}
+META
+}
+
 record_time_sync() {
     {
         echo "# 시간 동기화 구성 $(date '+%Y-%m-%dT%H:%M:%S%z')"
@@ -549,6 +577,7 @@ run_plan() {
     print_header " [실험 ${name}] 총 ${total}회 | 세션 ${SESSION_ID} | 결과 → ${OUT_DIR}"
     set_swappiness
     [ -f "${OUT_DIR}/time_sync.txt" ] || record_time_sync
+    record_session_meta
     clock_check "${name}_start"
 
     while IFS='|' read -r exp arch open idle rate light rep; do
@@ -630,16 +659,36 @@ case "$COMMAND" in
   gate-plan)  build_gate_plan | nl ;;
   prepare)    prepare ;;
   verify-queries) preflight; verify_queries ;;
-  gate)       preflight; run_plan "$(build_gate_plan)" gate ;;
+  gate)
+    preflight
+    for rate in $GATE_RATES; do
+        echo "$rate" > "${OUT_DIR}/gate_rate.txt"
+        run_plan "$(build_gate_plan "$rate")" "gate${rate}"
+        [ -n "$(cat "${OUT_DIR}/gate_eligible.txt" 2>/dev/null)" ] && break
+    done
+    ;;
   all)
     preflight
-    run_plan "$(build_gate_plan)" gate
-    eligible=$(cat "${OUT_DIR}/gate_eligible.txt" 2>/dev/null)
+    mkdir -p "$OUT_DIR"
+    eligible=""
+    for rate in $GATE_RATES; do
+        echo "$rate" > "${OUT_DIR}/gate_rate.txt"
+        print_header " [기준 조건] ${rate} rps × ${REPS}회 × 아키텍처 ${ARCHS} — 붕괴 재현 여부 확인"
+        run_plan "$(build_gate_plan "$rate")" "gate${rate}"
+        eligible=$(cat "${OUT_DIR}/gate_eligible.txt" 2>/dev/null)
+        if [ -n "$eligible" ]; then
+            print_header " [기준 조건 판정] ${rate} rps 에서 붕괴 재현 → 가설 1 본 판정 대상: ${eligible} | 제외: $(for a in $ARCHS; do echo " $eligible " | grep -q " $a " || printf '%s ' "$a"; done)"
+            break
+        fi
+        echo " [기준 조건] ${rate} rps 에서 붕괴 미관측"
+    done
     if [ -z "$eligible" ]; then
-        print_header " [중단] 기준 조건에서 붕괴가 관측된 아키텍처가 없음 → 실험 D 인과 판정 대상 없음. 본 실험 진행하지 않음"
-        exit 4
+        rm -f "${OUT_DIR}/gate_rate.txt"
+        print_header " [판정] ${GATE_RATES} rps 모두 붕괴 미관측 → 가설 1(붕괴 원인) 검증 불가. ${SAT_RATE} rps 포화 비교만 진행"
+        echo "unverifiable: ${GATE_RATES} rps 기준 조건에서 붕괴 미관측" > "${OUT_DIR}/h1_status.txt"
+    else
+        echo "collapse_reproduced_at=${eligible// /,}@$(cat "${OUT_DIR}/gate_rate.txt") rps" > "${OUT_DIR}/h1_status.txt"
     fi
-    print_header " [기준 조건 판정] 실험 D 인과 판정 대상: ${eligible} | 제외: $(for a in $ARCHS; do echo " $eligible " | grep -q " $a " || printf '%s ' "$a"; done)"
     run_plan "$(build_plan)" all
     ;;
   summarize)  python3 analysis/summarize_de.py "$OUT_DIR" ;;

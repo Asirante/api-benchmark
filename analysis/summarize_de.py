@@ -41,7 +41,15 @@ STABLE_DROP = 0.001
 STABLE_P99_MS = 50
 CLOCK_DRIFT_MAX_PCT = 3.0
 CLOCK_MIN_INTERVAL_S = 120
-BASELINE = {"pool": "500:100", "rate": "480", "light": "0"}
+# 포화 판정: DB CPU 가 제한(2코어)의 95% 이상인 시간이 실행의 절반 이상이거나,
+#            달성 처리량이 목표의 95% 미만이면서 초당 처리량이 안정적(변동계수 < 0.25)인 경우
+SATURATED_CPU_FRACTION = 0.5
+SATURATED_ACHIEVED = 0.95
+SATURATED_CV = 0.25
+# 가설 1 대체 판정(포화 구간 풀 비교) 기준
+POOL_EFFECT_STRONG = 0.10   # 처리량 10% 이상 차이 + 3회 범위 비중첩 → 효과 확인
+POOL_EFFECT_NONE = 0.05     # 5% 미만이거나 범위 중첩 → 차이 없음
+SMALL_POOLS = ("20:20", "50:50", "100:100")
 CPU_SATURATED_USEC_PER_SEC = 1.9e6  # 2코어 제한의 95%
 
 
@@ -243,10 +251,17 @@ def summarize_run(run, run_dir):
     episodes, cv, _, active_vus_max = collapse_episodes(run, run_dir, rate, dur)
     p99 = durm.get("p(99)", math.nan)
 
-    if episodes or (rate == 480 and drop_ratio >= DROP_COLLAPSE_480):
+    achieved = completed / dur / rate if rate else math.nan
+    cpu_sat_sec = cgroup_summary(run_dir / "cgroup_db.csv").get("cpu_saturated_sec", 0)
+    saturated = (cpu_sat_sec >= SATURATED_CPU_FRACTION * dur) or (achieved < SATURATED_ACHIEVED and cv < SATURATED_CV)
+
+    # 붕괴와 포화 구분: 붕괴는 처리량이 일시적으로 무너지는 현상, 포화는 상한에서 안정적으로 눌린 상태
+    if episodes or (drop_ratio >= DROP_COLLAPSE_480 and not saturated):
         verdict = "collapse"
     elif drop_ratio < STABLE_DROP and p99 < STABLE_P99_MS:
         verdict = "stable"
+    elif saturated:
+        verdict = "saturated"
     else:
         verdict = "degraded"
 
@@ -256,6 +271,8 @@ def summarize_run(run, run_dir):
     row.update({
         "pool": f"{run['pool_open']}:{run['pool_idle']}",
         "verdict": verdict,
+        "saturated": "1" if saturated else "0",
+        "achieved_ratio": achieved,
         "collapse_episodes": len(episodes),
         "collapse_total_s": sum(e["length_s"] for e in episodes),
         "first_collapse_offset_s": episodes[0]["start_offset_s"] if episodes else "",
@@ -345,10 +362,84 @@ def med_range(vals):
     return statistics.median(vals), min(vals), max(vals)
 
 
+def load_meta(d):
+    meta = {}
+    p = d / "session_meta.txt"
+    if p.exists():
+        for line in p.read_text().splitlines():
+            if "=" in line:
+                k, v = line.split("=", 1)
+                meta[k.strip()] = v.strip()
+    return meta
+
+
+def read_manifest(d):
+    with (d / "manifest.csv").open(newline="") as f:
+        return [r for r in csv.DictReader(f) if not r["run_id"].endswith("_incomplete")]
+
+
+def overlaps(a, b):
+    """두 구간 [min,max] 이 겹치는지"""
+    return not (a[1] < b[0] or b[1] < a[0])
+
+
+def pool_comparison(runs, rate, arch, base_pool="500:100"):
+    """포화 구간에서 풀 크기별 비교 (가설 1 대체 판정). 3회 중앙값과 [최소,최대] 사용."""
+    by_pool = defaultdict(list)
+    for r in runs:
+        if r["arch"] == arch and r["rate"] == str(rate) and r["light"] == "0" and r.get("clock_ok") != "0":
+            by_pool[r["pool"]].append(r)
+    out = {}
+    for pool, rs in by_pool.items():
+        g = [r["completed_per_scheduled_sec"] for r in rs]
+        out[pool] = {
+            "n": len(rs), "goodput": med_range(g),
+            "p99": med_range([r["k6_p99_ms"] for r in rs]),
+            "throttle": med_range([r.get("db_throttled_period_ratio", math.nan) for r in rs]),
+            "sessions": med_range([r.get("pg_sessions_opened", math.nan) for r in rs]),
+            "procarray": med_range([r.get("pg_max_procarray", math.nan) for r in rs]),
+            "pool_wait": med_range([r.get("pool_wait_sec", math.nan) for r in rs]),
+            "collapse": sum(r["verdict"] == "collapse" for r in rs),
+            "saturated": sum(r["verdict"] == "saturated" for r in rs),
+        }
+    return out
+
+
+def judge_pool_effect(cmp_, base_pool="500:100", cand_pools=SMALL_POOLS):
+    """고정 판정 규칙:
+       확인   후보 풀 중앙값이 기준 대비 +10% 이상 & 3회 범위 비중첩 & p99 중앙값이 더 낮음
+       없음   |차이| < 5% 이거나 범위 중첩
+       불확실 그 외"""
+    if base_pool not in cmp_:
+        return "데이터 없음", {}
+    b = cmp_[base_pool]
+    best, best_rel = None, -9
+    for p in cand_pools:
+        if p not in cmp_ or math.isnan(cmp_[p]["goodput"][0]) or math.isnan(b["goodput"][0]) or b["goodput"][0] == 0:
+            continue
+        rel = (cmp_[p]["goodput"][0] - b["goodput"][0]) / b["goodput"][0]
+        if rel > best_rel:
+            best, best_rel = p, rel
+    if best is None:
+        return "데이터 없음", {}
+    c = cmp_[best]
+    ov = overlaps(c["goodput"][1:], b["goodput"][1:])
+    p99_better = c["p99"][0] < b["p99"][0]
+    if best_rel >= POOL_EFFECT_STRONG and not ov and p99_better:
+        verdict = "확인"
+    elif abs(best_rel) < POOL_EFFECT_NONE or ov:
+        verdict = "차이 없음"
+    else:
+        verdict = "불확실"
+    return verdict, {"pool": best, "rel": best_rel, "overlap": ov, "p99_better": p99_better,
+                     "base": b, "cand": c}
+
+
 def main():
     d = Path(sys.argv[1])
-    with (d / "manifest.csv").open(newline="") as f:
-        manifest = [r for r in csv.DictReader(f) if not r["run_id"].endswith("_incomplete")]
+    extra_dirs = [Path(x) for x in sys.argv[2:]]
+    meta = load_meta(d)
+    manifest = read_manifest(d)
 
     checks = load_clock_checks(d)
     runs, tc_rows = [], []
@@ -365,7 +456,13 @@ def main():
             r["exp"] = run["exp"]
             tc_rows.append(r)
 
-    base = [r for r in runs if all(r[k] == v for k, v in BASELINE.items())]
+    baseline_pool = meta.get("baseline_pool", "500:100")
+    # session_meta.txt 가 없는 이전 세션은 기준 풀에서 실제로 실행된 rate 를 기준 조건으로 봄
+    gate_rates = (meta.get("gate_rates").split() if meta.get("gate_rates")
+                  else sorted({r["rate"] for r in runs if r["pool"] == baseline_pool and r["light"] == "0"}, key=int))
+    base_by_rate = {rate: [r for r in runs if r["pool"] == baseline_pool and r["rate"] == rate and r["light"] == "0"]
+                    for rate in gate_rates}
+    base = [r for rate in gate_rates for r in base_by_rate[rate]]
     eligible = sorted({r["arch"] for r in base if r["verdict"] == "collapse"})
     for r in runs:
         r["d_causal_target"] = "1" if r["arch"] in eligible else "0"
@@ -403,20 +500,55 @@ def main():
             "collapse_runs": sum(r["verdict"] == "collapse" for r in rs),
         })
 
-    lines = [f"기준 조건 (풀 500:100, 480 rps, light0): {len(base)}회 실행, 붕괴 {sum(r['verdict'] == 'collapse' for r in base)}회 — 아키텍처별 판정"]
-    for arch in ("rest", "graphql", "grpc"):
-        rs = sorted((r for r in base if r["arch"] == arch), key=lambda x: x["rep"])
-        n_collapse = sum(r["verdict"] == "collapse" for r in rs)
-        status = "판정 대상" if arch in eligible else ("제외 (붕괴 미관측)" if rs else "실행 없음")
-        lines.append(f"  {arch:8} {len(rs)}회 중 붕괴 {n_collapse}회 → {status}  "
-                     + ", ".join(f"rep{r['rep']}={r['verdict']}(구간 {r['collapse_episodes']}, drop {r['dropped_ratio'] * 100:.2f}%, 시계 {r.get('clock_ok') or '-'})" for r in rs))
+    lines = []
+    for rate in gate_rates:
+        rs_rate = base_by_rate[rate]
+        if not rs_rate:
+            continue
+        lines.append(f"기준 조건 (풀 {baseline_pool}, {rate} rps, light0): {len(rs_rate)}회, 붕괴 {sum(r['verdict'] == 'collapse' for r in rs_rate)}회 — 아키텍처별 판정")
+        for arch in ("rest", "graphql", "grpc"):
+            rs = sorted((r for r in rs_rate if r["arch"] == arch), key=lambda x: x["rep"])
+            if not rs:
+                continue
+            n_collapse = sum(r["verdict"] == "collapse" for r in rs)
+            status = "판정 대상" if arch in eligible else "제외 (붕괴 미관측)"
+            lines.append(f"  {arch:8} {len(rs)}회 중 붕괴 {n_collapse}회 → {status}  "
+                         + ", ".join(f"rep{r['rep']}={r['verdict']}(구간 {r['collapse_episodes']}, drop {r['dropped_ratio'] * 100:.2f}%, "
+                                     f"달성 {r['achieved_ratio'] * 100:.0f}%, 포화 {r['saturated']}, 시계 {r.get('clock_ok') or '-'})" for r in rs))
     if base:
-        lines.append("실험 D 인과 판정 대상: " + (" ".join(eligible) if eligible else "없음 → 중단 조건 해당 (본 실험 진행하지 않음)"))
+        lines.append("가설 1 본 판정(붕괴) 대상: " + (" ".join(eligible) if eligible else "없음 → 붕괴 미재현"))
     (d / "gate.txt").write_text("\n".join(lines) + "\n")
     (d / "gate_eligible.txt").write_text(" ".join(eligible))
     bad_clock = [r["run_id"] for r in runs if r.get("clock_ok") == "0"]
     if bad_clock:
         lines.append(f"[경고] 시계 드리프트 3% 초과 구간의 실행 {len(bad_clock)}회: 분석에서 제외할 것")
+
+    # 가설 1 대체 판정: 포화 구간(SAT_RATE) 풀 크기 비교
+    sat_rate = meta.get("sat_rate", "800")
+    dec = [f"가설 1 대체 판정 — 포화 구간 {sat_rate} rps 풀 크기 비교 (3회 중앙값 [최소–최대])",
+           f"  규칙: 작은 풀(20/50/100) 최선값이 {baseline_pool} 대비 처리량 +{POOL_EFFECT_STRONG:.0%} 이상 & 3회 범위 비중첩 & p99 더 낮음 → '확인'",
+           f"        |차이| < {POOL_EFFECT_NONE:.0%} 이거나 범위 중첩 → '차이 없음', 그 외 '불확실'",
+           f"        연결 반복 생성 여부: 500:500(유휴=최대, 재생성 없음) 을 {baseline_pool} 과 같은 규칙으로 비교"]
+    sat_rows = []
+    for arch in (meta.get("archs") or "rest graphql grpc").split():
+        cmp_ = pool_comparison(runs, sat_rate, arch, baseline_pool)
+        if not cmp_:
+            continue
+        for pool, v in sorted(cmp_.items(), key=lambda kv: int(kv[0].split(":")[0]) * 1000 + int(kv[0].split(":")[1])):
+            sat_rows.append({"arch": arch, "pool": pool, "reps": v["n"], "collapse_runs": v["collapse"], "saturated_runs": v["saturated"],
+                             **{f"{k}_{s}": v[k][i] for k in ("goodput", "p99", "throttle", "sessions", "procarray", "pool_wait")
+                                for i, s in enumerate(("median", "min", "max"))}})
+        verdict, det = judge_pool_effect(cmp_, baseline_pool)
+        line = f"  {arch:8} 풀 축소 효과: {verdict}"
+        if det:
+            line += (f" (최선 {det['pool']} 처리량 {det['cand']['goodput'][0]:.0f} vs {baseline_pool} {det['base']['goodput'][0]:.0f}, "
+                     f"{det['rel'] * 100:+.1f}%, 범위중첩 {'예' if det['overlap'] else '아니오'}, p99 더 낮음 {'예' if det['p99_better'] else '아니오'})")
+        dec.append(line)
+        v2, det2 = judge_pool_effect(cmp_, baseline_pool, ("500:500",))
+        if det2:
+            dec.append(f"           연결 반복 생성 영향: {v2} (500:500 처리량 {det2['cand']['goodput'][0]:.0f}, {det2['rel'] * 100:+.1f}%)")
+    (d / "h1_decision.txt").write_text("\n".join(dec) + "\n")
+    write_csv(d / "summary_de_saturation.csv", sat_rows)
 
     print(f"[집계] {d}")
     write_csv(d / "summary_de_runs.csv", runs)
@@ -424,6 +556,7 @@ def main():
     write_csv(d / "summary_de_conditions.csv", cond_rows)
     write_csv(d / "summary_de_throttle.csv", throttle_rows)
     print("\n".join(lines))
+    print("\n".join(dec))
 
 
 if __name__ == "__main__":

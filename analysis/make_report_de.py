@@ -32,6 +32,7 @@ def cell(r, key, nd=1, scale=1.0, suffix=""):
 def main():
     d = Path(sys.argv[1])
     conds = load(d / "summary_de_conditions.csv")
+    sat = load(d / "summary_de_saturation.csv")
     throttle = load(d / "summary_de_throttle.csv")
     runs = load(d / "summary_de_runs.csv")
     idx = {(r["exp"], r["arch"], r["pool"], r["rate"], r["light"]): r for r in conds}
@@ -48,11 +49,29 @@ def main():
         w("## 중단 조건 (기준 조건 풀 500:100, 480 rps)\n")
         w("```\n" + gate.read_text().strip() + "\n```\n")
 
+    for name, title in (("h1_status.txt", "가설 1 경로"), ("h1_decision.txt", "가설 1 대체 판정 (포화 구간 풀 비교)")):
+        p = d / name
+        if p.exists():
+            w(f"## {title}\n")
+            w("```\n" + p.read_text().strip() + "\n```\n")
+
+    if sat:
+        w("## 포화 구간 풀 크기 비교 (가설 1 대체 판정 근거)\n")
+        w("| 아키텍처 | 풀 | 실행 | 붕괴/포화 | 완료 iter/s | 전 TC p99 ms | DB 스로틀링 | 새 DB 연결 | ProcArray 대기 | 풀 대기 초 |")
+        w("|---|---|---|---|---|---|---|---|---|---|")
+        for r in sorted(sat, key=lambda r: (r["arch"], POOL_ORDER.index(r["pool"]) if r["pool"] in POOL_ORDER else 99)):
+            mr = lambda k, nd=1, sc=1.0, sfx="": (f"{float(r[k + '_median']) * sc:.{nd}f}{sfx} "
+                                                  f"[{float(r[k + '_min']) * sc:.{nd}f}–{float(r[k + '_max']) * sc:.{nd}f}]") if r.get(k + "_median") else "–"
+            w(f"| {r['arch']} | {r['pool']} | {r['reps']} | {r['collapse_runs']}/{r['saturated_runs']} | {mr('goodput', 0)} | {mr('p99')} | "
+              f"{mr('throttle', 1, 100, '%')} | {mr('sessions', 0)} | {mr('procarray', 0)} | {mr('pool_wait', 1)} |")
+        w("")
+
     w("## 실험 D — 풀 크기별 붕괴와 처리량\n")
     excluded = [a for a in ARCHS if a not in eligible]
     if excluded:
         w(f"> 인과 판정 제외: {', '.join(excluded)} (기준 조건에서 붕괴 미관측). 해당 행은 참고용으로만 표시\n")
-    for rate in ("480", "800"):
+    rates = sorted({r["rate"] for r in conds if r["exp"] == "D"}, key=int)
+    for rate in rates:
         w(f"### {rate} rps\n")
         w("| 풀 (open:idle) | 아키텍처 | 붕괴/실행 | 완료 iter/s | dropped | 전 TC p99 ms | 1초 처리량 변동계수 | DB 스로틀링 주기 비율 | DB CPU 포화 초 | ProcArray 대기 최대 | 연결 생성 수 | 풀 대기 초 |")
         w("|---|---|---|---|---|---|---|---|---|---|---|---|")
