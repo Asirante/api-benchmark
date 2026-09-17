@@ -48,6 +48,9 @@ type Query {
 
   # TC 3, 4, 5 (클라이언트가 필요한 필드만 골라서 요청!)
   getOrderDetails(id: String!): FullOrder!
+
+  # [실험 E] TC3 쿼리 수 보정용: 아이템만 조회 (REST /orders/:id/items, gRPC GetItemsByOrderID 와 같은 DB 작업)
+  getOrderItems(id: String!): [OrderItem!]!
 }
 
 type Mutation {

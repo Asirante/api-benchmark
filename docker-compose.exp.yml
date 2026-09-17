@@ -1,0 +1,20 @@
+# [실험 D/E] docker-compose.yml 위에 겹쳐 쓰는 설정 (기존 파일은 수정하지 않음)
+#   docker compose -f docker-compose.yml -f docker-compose.exp.yml up -d
+# 환경변수를 지정하지 않으면 API 풀 설정은 기존값(500 / 100)과 같음
+x-pool-env: &pool-env
+  DB_MAX_OPEN_CONNS: ${DB_MAX_OPEN_CONNS:-500}
+  DB_MAX_IDLE_CONNS: ${DB_MAX_IDLE_CONNS:-100}
+  DB_POOL_STATS_INTERVAL: ${DB_POOL_STATS_INTERVAL:-}
+
+services:
+  rest-api:
+    environment: *pool-env
+  graphql-api:
+    environment: *pool-env
+  grpc-api:
+    environment: *pool-env
+
+  influxdb:
+    environment:
+      # 직전 세션에서 k6 쓰기 배치가 기본 25 MB 제한에 걸려 거부된 문제 해소
+      INFLUXDB_HTTP_MAX_BODY_SIZE: "0"
