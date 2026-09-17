@@ -456,6 +456,7 @@ def main():
             r["exp"] = run["exp"]
             tc_rows.append(r)
 
+    sweep_mode = meta.get("mode") == "sweep"
     baseline_pool = meta.get("baseline_pool", "500:100")
     # session_meta.txt 가 없는 이전 세션은 기준 풀에서 실제로 실행된 rate 를 기준 조건으로 봄
     gate_rates = (meta.get("gate_rates").split() if meta.get("gate_rates")
@@ -517,8 +518,9 @@ def main():
                                      f"달성 {r['achieved_ratio'] * 100:.0f}%, 포화 {r['saturated']}, 시계 {r.get('clock_ok') or '-'})" for r in rs))
     if base:
         lines.append("가설 1 본 판정(붕괴) 대상: " + (" ".join(eligible) if eligible else "없음 → 붕괴 미재현"))
-    (d / "gate.txt").write_text("\n".join(lines) + "\n")
-    (d / "gate_eligible.txt").write_text(" ".join(eligible))
+    if not sweep_mode:  # 스윕 세션에는 기준 조건 판정이 없음
+        (d / "gate.txt").write_text("\n".join(lines) + "\n")
+        (d / "gate_eligible.txt").write_text(" ".join(eligible))
     bad_clock = [r["run_id"] for r in runs if r.get("clock_ok") == "0"]
     if bad_clock:
         lines.append(f"[경고] 시계 드리프트 3% 초과 구간의 실행 {len(bad_clock)}회: 분석에서 제외할 것")
@@ -547,8 +549,11 @@ def main():
         v2, det2 = judge_pool_effect(cmp_, baseline_pool, ("500:500",))
         if det2:
             dec.append(f"           연결 반복 생성 영향: {v2} (500:500 처리량 {det2['cand']['goodput'][0]:.0f}, {det2['rel'] * 100:+.1f}%)")
-    (d / "h1_decision.txt").write_text("\n".join(dec) + "\n")
-    write_csv(d / "summary_de_saturation.csv", sat_rows)
+    if not sweep_mode:
+        (d / "h1_decision.txt").write_text("\n".join(dec) + "\n")
+        write_csv(d / "summary_de_saturation.csv", sat_rows)
+    else:
+        lines, dec = [], []
 
     print(f"[집계] {d}")
     write_csv(d / "summary_de_runs.csv", runs)

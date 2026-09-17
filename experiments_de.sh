@@ -36,6 +36,12 @@ SHUFFLE=${SHUFFLE:-1}
 CLOCK_DRIFT_MAX_PCT=${CLOCK_DRIFT_MAX_PCT:-3}   # 풀 블록 사이 시계 드리프트가 이 값을 넘으면 중단
 CLOCK_MIN_INTERVAL=${CLOCK_MIN_INTERVAL:-120}   # 판정에 쓰는 최소 구간(초). 실시간 시계가 약 30초마다 계단식으로 보정되므로 짧은 구간은 판정하지 않음
 SESSION_ID=${SESSION_ID:-de_$(date +%Y%m%d_%H%M%S)}
+# sweep 명령용 (후속 실험: E 재실행, 적정 풀 처리 한계)
+SWEEP_EXP=${SWEEP_EXP:-F}               # run_id 의 실험 표기
+SWEEP_POOLS=${SWEEP_POOLS:-"50:50"}
+SWEEP_RATES=${SWEEP_RATES:-"800"}
+SWEEP_ARCHS=${SWEEP_ARCHS:-"rest graphql grpc"}
+SWEEP_LIGHTS=${SWEEP_LIGHTS:-"0"}       # GraphQL 에만 적용. 다른 아키텍처는 0 만 실행
 
 INFLUX_DB_NAME="k6"
 INFLUX_URL="http://benchmark_influxdb:8086"
@@ -123,6 +129,22 @@ build_plan() {
     for rep in $(seq 1 "$REPS"); do
         for pool in $(printf "%s\n" $POOLS | shuffle_with "${SESSION_ID}_${rep}_pools"); do
             block_entries "$pool" "$rep"
+        done
+    done
+}
+
+# 범용 스윕: 반복마다 풀 블록 순서를 섞고, 블록 안에서 아키텍처 × rate × light 조합을 섞음
+build_sweep_plan() {
+    local rep pool a r l open idle
+    for rep in $(seq 1 "$REPS"); do
+        for pool in $(printf "%s\n" $SWEEP_POOLS | shuffle_with "${SESSION_ID}_${rep}_pools"); do
+            open=${pool%%:*}; idle=${pool##*:}
+            {
+                for a in $SWEEP_ARCHS; do for r in $SWEEP_RATES; do for l in $SWEEP_LIGHTS; do
+                    [ "$a" != "graphql" ] && [ "$l" != "0" ] && continue
+                    echo "${SWEEP_EXP}|$a|$open|$idle|$r|$l|$rep"
+                done; done; done
+            } | shuffle_with "${SESSION_ID}_${rep}_${pool}"
         done
     done
 }
@@ -396,6 +418,12 @@ clock_check() {
 # 세션 시작 시 시간 동기화 구성 기록
 record_session_meta() {
     cat > "${OUT_DIR}/session_meta.txt" <<META
+mode=${RUN_MODE:-all}
+sweep_exp=${SWEEP_EXP}
+sweep_pools=${SWEEP_POOLS}
+sweep_rates=${SWEEP_RATES}
+sweep_archs=${SWEEP_ARCHS}
+sweep_lights=${SWEEP_LIGHTS}
 gate_rates=${GATE_RATES}
 sat_rate=${SAT_RATE}
 contrast_rate=${CONTRAST_RATE}
@@ -659,6 +687,16 @@ case "$COMMAND" in
   gate-plan)  build_gate_plan | nl ;;
   prepare)    prepare ;;
   verify-queries) preflight; verify_queries ;;
+  sweep-plan)
+    build_sweep_plan | nl
+    ;;
+  sweep)
+    RUN_MODE=sweep
+    preflight
+    mkdir -p "$OUT_DIR"
+    print_header " [스윕] ${SWEEP_EXP}: 풀 ${SWEEP_POOLS} × rate ${SWEEP_RATES} × ${SWEEP_ARCHS} × light ${SWEEP_LIGHTS} × ${REPS}회"
+    run_plan "$(build_sweep_plan)" sweep
+    ;;
   gate)
     preflight
     for rate in $GATE_RATES; do
