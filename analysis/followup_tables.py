@@ -50,6 +50,11 @@ def num(x):
         return math.nan
 
 
+def overlaps(a, b):
+    """두 구간 [min, max] 이 겹치는지"""
+    return not (a[1] < b[0] or b[1] < a[0])
+
+
 def load_runs(session):
     p = Path(session) / "summary_de_runs.csv"
     with p.open(newline="") as f:

@@ -3,7 +3,8 @@
 
   표 A  지터 유무별 TC1/TC5 p99 (아키텍처 × 300/400/500 VUs)            세션 exp_20260915_030551
   표 B  풀 크기별 달성 처리량·p99·DB 스로틀링 (640 / 800 rps)            세션 exp_de_20260916_1154
-  표 C  적정 풀에서의 처리 한계 (800~1200 rps)                           세션 exp_de_20260916_1154 + exp_de_cap_20260918_0345
+  표 C  적정 풀에서의 처리 한계                                          세션 exp_de_caph2_20260918_1436 (쿼리 수 보정 조건, 주 표)
+                                                                         + exp_de_20260916_1154 · exp_de_cap_20260918_0345 (보정 전, 참고)
   표 D  실험 A(tc5 vs tc5_slim) · 실험 E(19 vs 24 쿼리) 요약              세션 exp_20260915_030551 + exp_de_e2_20260917_1243
   그림 1  풀 크기 대비 달성 처리량 (800 rps)
   그림 2  rate 대비 달성 처리량과 API/DB CPU (적정 풀)
@@ -25,6 +26,7 @@ S_ABC = "exp_20260915_030551"
 S_D = "exp_de_20260916_1154"
 S_E2 = "exp_de_e2_20260917_1243"
 S_CAP = "exp_de_cap_20260918_0345"
+S_CAPH2 = "exp_de_caph2_20260918_1436"
 ARCHS = ("rest", "graphql", "grpc")
 ARCH_LABEL = {"rest": "REST", "graphql": "GraphQL", "grpc": "gRPC"}
 POOLS = ("20:20", "50:50", "100:100", "500:100", "500:500")
@@ -145,30 +147,49 @@ def table_b():
 def table_c():
     d_runs = [r for r in load(S_D, "summary_de_runs.csv") if r.get("clock_ok") != "0"]
     cap_runs = [r for r in load(S_CAP, "summary_de_runs.csv") if r.get("clock_ok") != "0"]
-    header = ["pool", "arch", "rate", "achieved_mean", "achieved_min", "achieved_max", "achieved_ratio_mean_pct",
-              "p99_mean_ms", "p99_min_ms", "p99_max_ms", "api_cpu_mean_pct", "api_cap_share_mean_pct",
-              "db_cpu_mean_pct", "db_cap_share_mean_pct", "reps", "source_session"]
-    rows, md = [], []
+    h2_runs = [r for r in load(S_CAPH2, "summary_de_runs.csv") if r.get("clock_ok") != "0"]
+    header = ["block", "condition", "pool", "arch", "light", "rate", "achieved_mean", "achieved_min", "achieved_max",
+              "achieved_ratio_mean_pct", "p50_mean_ms", "p95_mean_ms", "p99_mean_ms", "p99_min_ms", "p99_max_ms",
+              "api_cpu_mean_pct", "api_cap_share_mean_pct", "db_cpu_mean_pct", "db_throttle_mean_pct", "reps", "source_session"]
+    rows, md_main, md_ref = [], [], []
+
+    def add(block, label, pool, arch, light, rate, src, session, md):
+        rs = cond(src, arch=arch, pool=pool, rate=rate, light=light)
+        if not rs:
+            return
+        ach, p99 = mmm(rs, "completed_per_scheduled_sec"), mmm(rs, "k6_p99_ms")
+        ratio = ach[0] / rate * 100
+        api_cpu, db_cpu = mmm(rs, "api_cpu_mean_pct"), mmm(rs, "db_cpu_mean_pct")
+        api_cap = st.fmean([num(r["api_cpu_saturated_sec"]) / 60 * 100 for r in rs])
+        thr = mmm(rs, "db_throttled_period_ratio", 100)
+        p50, p95 = mmm(rs, "k6_p50_ms"), mmm(rs, "k6_p95_ms")
+        rows.append([block, label, pool, arch, light, rate, *ach, ratio, p50[0], p95[0], *p99,
+                     api_cpu[0], api_cap, db_cpu[0], thr[0], len(rs), session])
+        md.append(f"| {label} | {pool} | {rate} | {cell(ach, 0)} | {ratio:.1f}% | {p50[0]:.1f} | {cell(p99)} | "
+                  f"{api_cpu[0]:.0f}% | {api_cap:.0f}% | {db_cpu[0]:.0f}% | {thr[0]:.1f}% |")
+
+    # 주 표: 반복당 쿼리 수를 19개로 맞춘 조건 (풀 50:50, 같은 세션 안에서 비교)
+    for label, arch, light in (("REST (19쿼리)", "rest", "0"), ("gRPC (19쿼리)", "grpc", "0"),
+                               ("GraphQL light (19쿼리)", "graphql", "1"), ("GraphQL 기존 (24쿼리)", "graphql", "0")):
+        for rate in (800, 900, 1000, 1100):
+            add("보정 조건", label, "50:50", arch, light, rate, h2_runs, S_CAPH2, md_main)
+    # 참고: 보정 전 측정 (GraphQL 24쿼리, 풀 20:20·50:50)
     for pool in ("20:20", "50:50"):
         for arch in ARCHS:
-            for rate, src, session, dur in ((800, d_runs, S_D, 60), (900, cap_runs, S_CAP, 60),
-                                            (1000, cap_runs, S_CAP, 60), (1100, cap_runs, S_CAP, 60), (1200, cap_runs, S_CAP, 60)):
-                rs = cond(src, arch=arch, pool=pool, rate=rate, light="0")
-                if not rs:
-                    continue
-                ach, p99 = mmm(rs, "completed_per_scheduled_sec"), mmm(rs, "k6_p99_ms")
-                ratio = ach[0] / rate * 100
-                api_cpu, db_cpu = mmm(rs, "api_cpu_mean_pct"), mmm(rs, "db_cpu_mean_pct")
-                api_cap = st.fmean([num(r["api_cpu_saturated_sec"]) / dur * 100 for r in rs])
-                db_cap = st.fmean([num(r["db_cpu_saturated_sec"]) / dur * 100 for r in rs])
-                rows.append([pool, arch, rate, *ach, ratio, *p99, api_cpu[0], api_cap, db_cpu[0], db_cap, len(rs), session])
-                md.append(f"| {pool} | {ARCH_LABEL[arch]} | {rate} | {cell(ach, 0)} | {ratio:.1f}% | {cell(p99)} | "
-                          f"{api_cpu[0]:.0f}% | {api_cap:.0f}% | {db_cpu[0]:.0f}% | {db_cap:.0f}% |")
+            for rate, src, session in ((800, d_runs, S_D), (900, cap_runs, S_CAP), (1000, cap_runs, S_CAP),
+                                       (1100, cap_runs, S_CAP), (1200, cap_runs, S_CAP)):
+                add("보정 전", ARCH_LABEL[arch], pool, arch, "0", rate, src, session, md_ref)
+
     emit("table_c_capacity", header, rows,
-         "# 표 C. 적정 풀에서의 처리 한계 (개방 루프, 60초)",
-         ["| 풀 | 아키텍처 | 목표 rate | 달성 iter/s | 달성률 | p99 (ms) | API CPU | API 상한 도달 시간 | DB CPU | DB 상한 도달 시간 |",
-          "|---|---|---|---|---|---|---|---|---|---|"], md,
-         [f"800 rps 행은 세션 `{S_D}`, 900~1200 rps 행은 세션 `{S_CAP}`.",
+         "# 표 C. 처리 한계 (개방 루프, 60초)",
+         ["## C-1. 반복당 쿼리 수를 19개로 맞춘 조건 (풀 50:50, 단일 세션)", "",
+          "| 조건 | 풀 | 목표 rate | 달성 iter/s | 달성률 | p50 (ms) | p99 (ms) | API CPU | API 상한 도달 | DB CPU | DB 스로틀링 |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"], md_main + [""] +
+         ["## C-2. 보정 전 측정 (참고)", "",
+          "| 아키텍처 | 풀 | 목표 rate | 달성 iter/s | 달성률 | p50 (ms) | p99 (ms) | API CPU | API 상한 도달 | DB CPU | DB 스로틀링 |",
+          "|---|---|---|---|---|---|---|---|---|---|---|"] + md_ref,
+         [f"C-1 출처 세션 `{S_CAPH2}`(2026-09-18, 48회). GraphQL light 는 `GQL_TC3_LIGHT=1` 로 반복당 쿼리를 24 → 19개로 맞춘 조건.",
+          f"C-2 출처: 800 rps 는 `{S_D}`, 900~1200 rps 는 `{S_CAP}`. GraphQL 은 24쿼리 조건이다.",
           "CPU 는 컨테이너 제한 200%(2코어) 기준. 상한 도달 시간 = CPU 가 제한의 95% 이상인 시간이 실행에서 차지하는 비율.",
           "목표 미달 기준은 달성률 95% 미만(실행 전 고정)."])
 
@@ -252,22 +273,32 @@ def figures():
 
     # 그림 2: rate 대비 달성 처리량과 API/DB CPU (적정 풀 20:20, 50:50)
     cap = [r for r in load(S_CAP, "summary_de_runs.csv") if r.get("clock_ok") != "0"]
+    h2 = [r for r in load(S_CAPH2, "summary_de_runs.csv") if r.get("clock_ok") != "0"]
     with (OUT / "fig2_rate_vs_throughput_cpu.csv").open("w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["pool", "arch", "rate_x", "achieved_mean", "achieved_min", "achieved_max", "achieved_ratio_pct",
-                    "p99_mean_ms", "api_cpu_mean_pct", "api_cap_share_pct", "db_cpu_mean_pct", "db_cap_share_pct", "source_session"])
+        w.writerow(["block", "condition", "pool", "arch", "light", "rate_x", "achieved_mean", "achieved_min", "achieved_max",
+                    "achieved_ratio_pct", "p99_mean_ms", "api_cpu_mean_pct", "api_cap_share_pct",
+                    "db_cpu_mean_pct", "db_cap_share_pct", "db_throttle_mean_pct", "source_session"])
+
+        def line(block, label, pool, arch, light, rate, src, session, dur):
+            rs = cond(src, arch=arch, pool=pool, rate=rate, light=light)
+            if not rs:
+                return
+            ach = mmm(rs, "completed_per_scheduled_sec")
+            w.writerow([block, label, pool, arch, light, rate, *ach, ach[0] / rate * 100, mmm(rs, "k6_p99_ms")[0],
+                        mmm(rs, "api_cpu_mean_pct")[0], st.fmean([num(r["api_cpu_saturated_sec"]) / dur * 100 for r in rs]),
+                        mmm(rs, "db_cpu_mean_pct")[0], st.fmean([num(r["db_cpu_saturated_sec"]) / dur * 100 for r in rs]),
+                        mmm(rs, "db_throttled_period_ratio", 100)[0], session])
+
+        for label, arch, light in (("REST (19쿼리)", "rest", "0"), ("gRPC (19쿼리)", "grpc", "0"),
+                                   ("GraphQL light (19쿼리)", "graphql", "1"), ("GraphQL 기존 (24쿼리)", "graphql", "0")):
+            for rate in (800, 900, 1000, 1100):
+                line("보정 조건", label, "50:50", arch, light, rate, h2, S_CAPH2, 60)
         for pool in ("20:20", "50:50"):
             for arch in ARCHS:
                 for rate, src, session in ((640, runs, S_D), (800, runs, S_D), (900, cap, S_CAP),
                                            (1000, cap, S_CAP), (1100, cap, S_CAP), (1200, cap, S_CAP)):
-                    rs = cond(src, arch=arch, pool=pool, rate=rate, light="0")
-                    if not rs:
-                        continue
-                    dur = 180 if rate == 640 else 60
-                    ach = mmm(rs, "completed_per_scheduled_sec")
-                    w.writerow([pool, arch, rate, *ach, ach[0] / rate * 100, mmm(rs, "k6_p99_ms")[0],
-                                mmm(rs, "api_cpu_mean_pct")[0], st.fmean([num(r["api_cpu_saturated_sec"]) / dur * 100 for r in rs]),
-                                mmm(rs, "db_cpu_mean_pct")[0], st.fmean([num(r["db_cpu_saturated_sec"]) / dur * 100 for r in rs]), session])
+                    line("보정 전", ARCH_LABEL[arch], pool, arch, "0", rate, src, session, 180 if rate == 640 else 60)
     print("[완료] paper/fig2_rate_vs_throughput_cpu.csv")
 
     # 그림 3: 지터 유무별 p99 (500 VUs, 전 TC)

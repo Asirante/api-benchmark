@@ -10,3 +10,5 @@ __pycache__/
 /rest
 /graphql
 /grpc
+# 논문용 표·그림 데이터는 추적한다 (수 KB)
+!paper/*.csv
