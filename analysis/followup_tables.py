@@ -298,7 +298,9 @@ def cmd_capacity_h2(args):
               "achieved_ratio_pct", "p50_mean_ms", "p95_mean_ms", "p99_mean_ms", "p99_min_ms", "p99_max_ms",
               "api_cpu_mean_pct", "api_cap_share_pct", "db_cpu_mean_pct", "db_throttle_mean_pct", "bottleneck", "source_session"]
     csv_rows, md = [], [f"# 쿼리 수 보정 조건의 처리 한계 (풀 {pool}, 세션 `{d.name}`)", "",
-                        "표기: 3회 평균 [최소–최대]. 병목 유형·목표 미달 기준은 기존과 동일(실행 전 고정).", "",
+                        "표기: **3회 중앙값** [최소–최대] (이 스크립트의 `mmm()` 은 중앙값을 씁니다). "
+                        "논문용 표 `paper/table_c_capacity` 는 같은 원시 데이터를 **3회 평균**으로 집계하므로 대표값이 다릅니다. "
+                        "병목 유형·목표 미달 기준은 기존과 동일(실행 전 고정).", "",
                         "| 조건 | 목표 rate | 달성 iter/s | 달성률 | p50 | p95 | p99 | API CPU | API 상한 도달 | DB CPU | DB 스로틀링 | 병목 |",
                         "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     peak = {}
