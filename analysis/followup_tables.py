@@ -34,6 +34,10 @@ OK_ACHIEVED = 0.99              # 달성률 ≥ 99% & p99 < 100 ms → 정상
 H2_P99_SUPPORT = -0.30          # light 의 p99 가 기존 대비 30% 이상 감소 & 3회 범위 비중첩 → 쿼리 수가 원인으로 지지
 H2_P99_NONE = 0.10              # |변화| < 10% 이거나 범위 중첩 → 차이 없음
 
+# 가설 2 처리 한계 판정 (쿼리 수 보정 조건에서 아키텍처 간 차이가 남는지, 실행 전 고정)
+H2_CAP_DIFF = 0.05             # 최대 달성 처리량 차이 5% 이상 & 3회 [최소–최대] 범위 비중첩 → 유의한 차이
+                               #   차이 < 5% 이거나 범위 중첩 → 차이 없음 / 그 외 불확실
+
 # 포화 판정
 SATURATION_ACHIEVED = 0.95      # 달성률 중앙값 < 95% → 목표 미달
 CPU_CAP_FRACTION = 0.50         # CPU 가 제한의 95% 이상인 시간이 실행의 50% 이상 → 상한 도달
@@ -44,6 +48,11 @@ def num(x):
         return float(x)
     except (TypeError, ValueError):
         return math.nan
+
+
+def overlaps(a, b):
+    """두 구간 [min, max] 이 겹치는지"""
+    return not (a[1] < b[0] or b[1] < a[0])
 
 
 def load_runs(session):
@@ -80,6 +89,8 @@ def condition_stats(rows, rate):
         "n": len(rows),
         "achieved": mmm(rows, "completed_per_scheduled_sec"),
         "achieved_ratio": mmm(rows, "completed_per_scheduled_sec", 1 / int(rate)),
+        "p50": mmm(rows, "k6_p50_ms"),
+        "p95": mmm(rows, "k6_p95_ms"),
         "p99": mmm(rows, "k6_p99_ms"),
         "db_thr": mmm(rows, "db_throttled_period_ratio"),
         "api_thr": mmm(rows, "api_throttled_period_ratio"),
@@ -275,14 +286,94 @@ def cmd_capacity(args):
     write_outputs(d, "capacity_table", header, csv_rows, md)
 
 
+def cmd_capacity_h2(args):
+    """쿼리 수를 19개로 맞춘 조건에서 처리 한계 재측정 (풀 고정, 같은 세션 안에서 비교)."""
+    d = Path(args.session)
+    runs = load_runs(d)
+    pool = args.pool
+    rates = sorted({int(r["rate"]) for r in runs})
+    conds = [("GraphQL light (19쿼리)", "graphql", "1"), ("GraphQL 기존 (24쿼리)", "graphql", "0"),
+             ("REST (19쿼리)", "rest", "0"), ("gRPC (19쿼리)", "grpc", "0")]
+    header = ["condition", "arch", "light", "rate", "reps", "achieved_mean", "achieved_min", "achieved_max",
+              "achieved_ratio_pct", "p50_mean_ms", "p95_mean_ms", "p99_mean_ms", "p99_min_ms", "p99_max_ms",
+              "api_cpu_mean_pct", "api_cap_share_pct", "db_cpu_mean_pct", "db_throttle_mean_pct", "bottleneck", "source_session"]
+    csv_rows, md = [], [f"# 쿼리 수 보정 조건의 처리 한계 (풀 {pool}, 세션 `{d.name}`)", "",
+                        "표기: 3회 평균 [최소–최대]. 병목 유형·목표 미달 기준은 기존과 동일(실행 전 고정).", "",
+                        "| 조건 | 목표 rate | 달성 iter/s | 달성률 | p50 | p95 | p99 | API CPU | API 상한 도달 | DB CPU | DB 스로틀링 | 병목 |",
+                        "|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    peak = {}
+    for label, arch, light in conds:
+        for rate in rates:
+            rs = [r for r in runs if r["arch"] == arch and r["light"] == light and r["pool"] == pool and r["rate"] == str(rate)]
+            if not rs:
+                continue
+            c = condition_stats(rs, rate)
+            dur = duration_s(rs[0])
+            api_cap = statistics.fmean([num(r["api_cpu_saturated_sec"]) / dur * 100 for r in rs])
+            b = bottleneck(c)
+            if label not in peak or c["achieved"][0] > peak[label]["achieved"][0]:
+                peak[label] = {**c, "rate": rate, "bottleneck": b}
+            md.append(f"| {label} | {rate} | {fmt(c['achieved'], 0)} | {c['achieved_ratio'][0] * 100:.1f}% | {c['p50'][0]:.1f} | "
+                      f"{c['p95'][0]:.1f} | {fmt(c['p99'], 1)} | {c['api_cpu'][0]:.0f}% | {api_cap:.0f}% | {c['db_cpu'][0]:.0f}% | "
+                      f"{c['db_thr'][0] * 100:.1f}% | {b} |")
+            csv_rows.append([label, arch, light, rate, c["n"], *c["achieved"], c["achieved_ratio"][0] * 100,
+                             c["p50"][0], c["p95"][0], *c["p99"], c["api_cpu"][0], api_cap, c["db_cpu"][0],
+                             c["db_thr"][0] * 100, b, d.name])
+
+    md += ["", "## 조건별 최대 달성 처리량 (평평해지는 값)", "",
+           "| 조건 | 최대 달성 iter/s | 관측 rate | 병목 |", "|---|---|---|---|"]
+    for label in [c[0] for c in conds if c[0] in peak]:
+        p = peak[label]
+        md.append(f"| {label} | {fmt(p['achieved'], 0)} | {p['rate']} rps | {p['bottleneck']} |")
+
+    md += ["", "## 판정 (실행 전 고정한 규칙)", "",
+           f"- 유의한 차이: 최대 달성 처리량 차이 {H2_CAP_DIFF:.0%} 이상 & 3회 [최소–최대] 범위 비중첩",
+           f"- 차이 없음: 차이 {H2_CAP_DIFF:.0%} 미만 이거나 범위 중첩 / 그 외: 불확실", ""]
+    light = peak.get("GraphQL light (19쿼리)")
+    refs = {k: peak[k] for k in ("REST (19쿼리)", "gRPC (19쿼리)") if k in peak}
+    if light and refs:
+        lower_ref_label = min(refs, key=lambda k: refs[k]["achieved"][0])
+        ref = refs[lower_ref_label]
+        rel = (light["achieved"][0] - ref["achieved"][0]) / ref["achieved"][0]
+        ov = overlaps(light["achieved"][1:], ref["achieved"][1:])
+        if rel <= -H2_CAP_DIFF and not ov:
+            verdict = "쿼리 수를 맞춘 뒤에도 GraphQL 의 처리 한계가 유의하게 낮음"
+        elif abs(rel) < H2_CAP_DIFF or ov:
+            verdict = "차이 없음 (쿼리 수를 맞추면 처리 한계가 REST·gRPC 수준)"
+        else:
+            verdict = "불확실"
+        md.append(f"**핵심 질문 판정: {verdict}** — GraphQL light {light['achieved'][0]:.0f} "
+                  f"[{light['achieved'][1]:.0f}–{light['achieved'][2]:.0f}] vs 낮은 쪽 기준 {lower_ref_label} "
+                  f"{ref['achieved'][0]:.0f} [{ref['achieved'][1]:.0f}–{ref['achieved'][2]:.0f}] iter/s, "
+                  f"{rel * 100:+.1f}%, 범위 중첩 {'예' if ov else '아니오'}")
+    base = peak.get("GraphQL 기존 (24쿼리)")
+    if light and base:
+        rel = (light["achieved"][0] - base["achieved"][0]) / base["achieved"][0]
+        ov = overlaps(light["achieved"][1:], base["achieved"][1:])
+        eff = ("보정 효과 있음" if rel >= H2_CAP_DIFF and not ov
+               else "차이 없음" if abs(rel) < H2_CAP_DIFF or ov else "불확실")
+        md.append("")
+        md.append(f"**보정 전후 (24 → 19쿼리): {eff}** — {base['achieved'][0]:.0f} "
+                  f"[{base['achieved'][1]:.0f}–{base['achieved'][2]:.0f}] → {light['achieved'][0]:.0f} "
+                  f"[{light['achieved'][1]:.0f}–{light['achieved'][2]:.0f}] iter/s, {rel * 100:+.1f}%, "
+                  f"범위 중첩 {'예' if ov else '아니오'}")
+    all_below = [rate for rate in rates if all(
+        (lambda rs: rs and condition_stats(rs, rate)["achieved_ratio"][0] < SATURATION_ACHIEVED)(
+            [r for r in runs if r["arch"] == a and r["light"] == l and r["pool"] == pool and r["rate"] == str(rate)])
+        for _, a, l in conds)]
+    md += ["", f"- 네 조건이 모두 목표 미달인 최저 rate: " + (f"**{min(all_below)} rps**" if all_below else "없음")]
+    write_outputs(d, "capacity_h2", header, csv_rows, md)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("pool-size"); p.add_argument("session"); p.add_argument("--contrast-ref")
     p = sub.add_parser("e2"); p.add_argument("session"); p.add_argument("--ref"); p.add_argument("--pool", default="50:50"); p.add_argument("--rates", default="640 800")
     p = sub.add_parser("capacity"); p.add_argument("session")
+    p = sub.add_parser("capacity-h2"); p.add_argument("session"); p.add_argument("--pool", default="50:50")
     a = ap.parse_args()
-    {"pool-size": cmd_pool_size, "e2": cmd_e2, "capacity": cmd_capacity}[a.cmd](a)
+    {"pool-size": cmd_pool_size, "e2": cmd_e2, "capacity": cmd_capacity, "capacity-h2": cmd_capacity_h2}[a.cmd](a)
 
 
 if __name__ == "__main__":
